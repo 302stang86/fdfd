@@ -5,6 +5,8 @@ const LOOK := 0.0025
 const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
+const ARENA_SIZE := 96.0
+const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
@@ -56,7 +58,7 @@ var difficulty := 1
 var paintballs: Array[Paintball] = []
 var arena_splats: Node3D
 var paintball_mesh: SphereMesh
-var spawn := Vector3(0, 0.1, 19)
+var spawn := Vector3(0, 0.1, 35)
 var ammo := 16
 var health := MAX_HEALTH
 var reload := 0.0
@@ -78,15 +80,22 @@ func _ready() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	box(Vector3(0, -0.25, 0), Vector3(48, 0.5, 48), Color("#485842"))
+	box(Vector3(0, -0.25, 0), Vector3(ARENA_SIZE, 0.5, ARENA_SIZE), Color("#485842"))
 	for side in [-1, 1]:
-		box(Vector3(side * 24, 1.5, 0), Vector3(0.5, 3, 48), Color("#323e43"))
-		box(Vector3(0, 1.5, side * 24), Vector3(48, 3, 0.5), Color("#323e43"))
+		box(Vector3(side * ARENA_EDGE, 1.5, 0), Vector3(0.5, 3, ARENA_SIZE), Color("#323e43"))
+		box(Vector3(0, 1.5, side * ARENA_EDGE), Vector3(ARENA_SIZE, 3, 0.5), Color("#323e43"))
 		if map_id != 0:
 			continue
 		for z in [-16, -6, 5, 14]:
 			box(Vector3(side * 13, 0.65, z), Vector3(3, 1.3, 1), Color("#a17443"))
 	if map_id == 0:
+		for side in [-1, 1]:
+			for z in [-33, -22, 1, 21, 33]:
+				box(Vector3(side * 34, 0.7, z), Vector3(4, 1.4, 1.3), Color("#a17443"))
+			for z in [-27, -12, 15, 28]:
+				box(Vector3(side * 24, 0.65, z), Vector3(2.4, 1.3, 2.4), Color("#647984"))
+			for z in [-39, 25, 39]:
+				box(Vector3(side * 9, 0.65, z), Vector3(3.5, 1.3, 1.2), Color("#a17443"))
 		build_field_day()
 	elif map_id >= 2:
 		for cell in custom_layout:
@@ -210,12 +219,12 @@ func start_match() -> void:
 	bots.clear()
 	bot_ai.reset()
 	var locations := [
-		Vector3(-18, 0.1, -16), Vector3(18, 0.1, -15), Vector3(0, 0.1, -19),
-		Vector3(-17, 0.1, 3), Vector3(17, 0.1, -4)
+		Vector3(-30, 0.1, -30), Vector3(30, 0.1, -30), Vector3(0, 0.1, -37),
+		Vector3(-32, 0.1, 8), Vector3(32, 0.1, -8)
 	]
 	if team_match:
-		locations[3] = Vector3(-8, 0.1, 17)
-		locations[4] = Vector3(8, 0.1, 17)
+		locations[3] = Vector3(-12, 0.1, 33)
+		locations[4] = Vector3(12, 0.1, 33)
 	for index in range(locations.size()):
 		var team := 0 if team_match and index >= 3 else 1
 		var bot := actor(locations[index], true, team)
