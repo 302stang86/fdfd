@@ -28,6 +28,7 @@ const LOOP: Array[Vector2i] = [
 	Vector2i(2, 2)
 ]
 const GRID_CENTER := Vector2(7.5, 7.5)
+const BAY_LENGTH := 6.0 # keep in sync with BAY in blender/make_urban_props.py
 
 func generate_border(collision_host: Node3D) -> void:
 	var colliders := StaticBody3D.new()
@@ -86,9 +87,8 @@ func build_segment(start: Vector3, finish: Vector3, index: int, colliders: Stati
 	add_child(segment)
 	segment.position = midpoint
 	segment.rotation.y = yaw
-	var prefab := select_prefab(type, index)
-	if prefab != null:
-		segment.add_child(prefab.instantiate())
+	if select_prefab(type, index) != null:
+		place_prefabs(segment, type, length, index)
 	else:
 		build_visual(segment, type, length)
 		if type == Barrier.RUBBLE or type == Barrier.DESTROYED_CAR:
@@ -107,6 +107,34 @@ func select_prefab(type: int, index: int) -> PackedScene:
 	var pools := [building_scenes, chain_link_scenes, wood_fence_scenes, rubble_scenes, destroyed_car_scenes]
 	var pool: Array = pools[type]
 	return null if pool.is_empty() else pool[index % pool.size()]
+
+# Wall-style prefabs are modelled one BAY long. They are tiled along the segment
+# and stretched slightly so the bays meet exactly at the segment ends. Wrecked cars
+# are placed unstretched at the same spacing the blockout used.
+func place_prefabs(segment: Node3D, type: int, length: float, index: int) -> void:
+	if type == Barrier.DESTROYED_CAR:
+		var wrecks := maxi(1, floori(length / 3.5))
+		for wreck in range(wrecks):
+			var car: Node3D = select_prefab(type, index + wreck).instantiate()
+			segment.add_child(car)
+			car.position.z = -length * 0.5 + (wreck + 0.5) * length / wrecks
+	else:
+		tile_bays(segment, type, length, index)
+	# Rubble heaps and wrecks are low, so a fence rises above them to match the collider.
+	if type == Barrier.RUBBLE or type == Barrier.DESTROYED_CAR:
+		if chain_link_scenes.is_empty():
+			fence_wire(segment, length)
+		else:
+			tile_bays(segment, Barrier.CHAIN_LINK, length, index)
+
+func tile_bays(segment: Node3D, type: int, length: float, index: int) -> void:
+	var bays := maxi(1, roundi(length / BAY_LENGTH))
+	var bay_length := length / bays
+	for bay in range(bays):
+		var piece: Node3D = select_prefab(type, index + bay).instantiate()
+		segment.add_child(piece)
+		piece.position.z = -length * 0.5 + (bay + 0.5) * bay_length
+		piece.scale.z = bay_length / BAY_LENGTH
 
 func build_visual(segment: Node3D, type: int, length: float) -> void:
 	match type:

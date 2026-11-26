@@ -13,6 +13,14 @@ const MAX_HEALTH := 5
 const ARENA_SIZE := 96.0
 const URBAN_MAP := 2
 const URBAN_BORDER := preload("res://urban_border.gd")
+const BUILDING_MODELS: Array[PackedScene] = [
+	preload("res://assets/models/building_brick.glb"),
+	preload("res://assets/models/building_boarded.glb"),
+]
+const CHAIN_LINK_MODELS: Array[PackedScene] = [preload("res://assets/models/chain_link_fence.glb")]
+const WOOD_FENCE_MODELS: Array[PackedScene] = [preload("res://assets/models/wood_fence.glb")]
+const RUBBLE_MODELS: Array[PackedScene] = [preload("res://assets/models/rubble_pile.glb")]
+const CAR_WRECK_MODELS: Array[PackedScene] = [preload("res://assets/models/car_wreck.glb")]
 const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
 const BOT_SPRITE := preload("res://bot_sprite.gd")
@@ -637,6 +645,11 @@ func build_urban_arena() -> void:
 	spawn = Vector3(0, 0.1, 31.8)
 	var border := URBAN_BORDER.new()
 	border.grid_scale = 6.0
+	border.building_scenes = BUILDING_MODELS
+	border.chain_link_scenes = CHAIN_LINK_MODELS
+	border.wood_fence_scenes = WOOD_FENCE_MODELS
+	border.rubble_scenes = RUBBLE_MODELS
+	border.destroyed_car_scenes = CAR_WRECK_MODELS
 	add_child(border)
 	border.generate_border(self)
 	border.draw_footprint()
