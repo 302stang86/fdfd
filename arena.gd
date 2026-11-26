@@ -11,6 +11,8 @@ const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
 const ARENA_SIZE := 96.0
+const URBAN_MAP := 2
+const URBAN_BORDER := preload("res://urban_border.gd")
 const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
 const BOT_SPRITE := preload("res://bot_sprite.gd")
@@ -90,7 +92,7 @@ func _ready() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	box(Vector3(0, -0.25, 0), Vector3(ARENA_SIZE, 0.5, ARENA_SIZE), Color("#485842"))
+	box(Vector3(0, -0.25, 0), Vector3(ARENA_SIZE, 0.5, ARENA_SIZE), Color("#55595d") if map_id == URBAN_MAP else Color("#485842"))
 	for side in [-1, 1]:
 		box(Vector3(side * ARENA_EDGE, 1.5, 0), Vector3(0.5, 3, ARENA_SIZE), Color("#323e43"))
 		box(Vector3(0, 1.5, side * ARENA_EDGE), Vector3(ARENA_SIZE, 3, 0.5), Color("#323e43"))
@@ -107,7 +109,9 @@ func _ready() -> void:
 			for z in [-39, 25, 39]:
 				box(Vector3(side * 9, 0.65, z), Vector3(3.5, 1.3, 1.2), Color("#a17443"))
 		build_field_day()
-	elif map_id >= 2:
+	elif map_id == URBAN_MAP:
+		build_urban_arena()
+	elif map_id > URBAN_MAP:
 		for cell in custom_layout:
 			var coordinates := String(cell).split(",")
 			if coordinates.size() != 2 or not coordinates[0].is_valid_int() or not coordinates[1].is_valid_int():
@@ -253,9 +257,17 @@ func start_match() -> void:
 		Vector3(-30, 0.1, -30), Vector3(30, 0.1, -30), Vector3(0, 0.1, -37),
 		Vector3(-32, 0.1, 8), Vector3(32, 0.1, -8)
 	]
+	if map_id == URBAN_MAP:
+		locations = [
+			Vector3(-21, 0.1, -23), Vector3(21, 0.1, -22), Vector3(11, 0.1, -30),
+			Vector3(-24, 0.1, 15), Vector3(22, 0.1, 16)
+		]
 	if team_match:
 		locations[3] = Vector3(-12, 0.1, 33)
 		locations[4] = Vector3(12, 0.1, 33)
+		if map_id == URBAN_MAP:
+			locations[3] = Vector3(-10, 0.1, 25)
+			locations[4] = Vector3(10, 0.1, 25)
 	var skins := [0, 1, 2, 3, 4, 5, 6, 7]
 	skins.shuffle()
 	for index in range(locations.size()):
@@ -611,6 +623,23 @@ func update_hud() -> void:
 	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
 		status, remaining_opponents(), message
 	]
+
+func build_urban_arena() -> void:
+	spawn = Vector3(0, 0.1, 31.8)
+	var border := URBAN_BORDER.new()
+	border.grid_scale = 6.0
+	add_child(border)
+	border.generate_border(self)
+	box(Vector3(0, 0.005, 2), Vector3(16, 0.01, 54), Color("#3f454a"), self, false)
+	for x in [-8, 8]:
+		box(Vector3(x, 0.028, 2), Vector3(1.5, 0.055, 54), Color("#a29d90"), self, false)
+	for z in range(-23, 29, 5):
+		box(Vector3(0, 0.012, z), Vector3(0.14, 0.015, 2.0), Color("#d2ad5c"), self, false)
+	for x in [-16, 16]:
+		for z in [-19, 9, 23]:
+			box(Vector3(x, 0.62, z), Vector3(3.8, 1.24, 1.5), Color("#777b78"))
+			box(Vector3(x, 1.18, z), Vector3(3.9, 0.13, 1.58), Color("#b08f56"), self, false)
+	build_field_day()
 
 func build_field_day() -> void:
 	for point in [Vector3(-4, 0.6, 13), Vector3(5, 0.6, 8), Vector3(-6, 0.6, -12), Vector3(7, 0.6, -14)]:
