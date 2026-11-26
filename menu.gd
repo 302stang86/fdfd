@@ -4,6 +4,13 @@ const ARENA := preload("res://arena.tscn")
 const CHARACTER_PREVIEW := preload("res://character_preview.gd")
 const MAP_FILE := "user://arenas.json"
 const CONFIG_FILE := "user://field-day.cfg"
+const CHEAT_HASH := "97aa791eaa8aee573cd373f0c352ea67d7788d6aa00849b0eea29ba3f5fcb0e6" # SHA-256 of the cheat password
+const CHEAT_OPTIONS := {
+	"god_mode": "God mode (cannot be tagged)",
+	"infinite_ammo": "Infinite paintballs",
+	"one_hit": "One-hit tags (bots go down in one hit)",
+	"fast_reload": "Instant reload",
+}
 const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo / goth"]
 const COLORS := ["#63774b", "#34313d", "#db4f64", "#dcb05a", "#405a86", "#e9b5cb", "#9bb3ba", "#543b64"]
 const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launcher"]
@@ -24,6 +31,8 @@ var map_name: LineEdit
 var grid: GridContainer
 var drafting: Dictionary = {}
 var editor_status: Label
+var cheats_unlocked := false # lasts for this run only, the password is asked again next launch
+var cheats: Dictionary = {}
 
 func _ready() -> void:
 	settings.load(CONFIG_FILE)
@@ -96,6 +105,7 @@ func _ready() -> void:
 	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], 1)
 	add_button("Play match", play_match)
 	add_button("Create a map", open_editor)
+	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
 		"Click the arena to capture the mouse. Use WASD to move, hold C to crouch, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag every opposing bot to win. Teammates have a teal diamond above them in 3v3. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
 
@@ -217,11 +227,69 @@ func play_match() -> void:
 	arena.map_id = maps.selected
 	arena.team_match = mode_picker.selected == 1
 	arena.difficulty = difficulty_picker.selected
+	arena.cheats = cheats.duplicate()
 	if maps.selected >= 3:
 		arena.custom_layout = saved_maps[maps.get_selected_metadata()]
 	arena.menu_requested.connect(return_home)
 	hide()
 	add_child(arena)
+
+func open_cheats() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Cheat mode"
+	dialog.ok_button_text = "Close"
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.close_requested.connect(dialog.queue_free)
+	var form := VBoxContainer.new()
+	form.custom_minimum_size.x = 340
+	form.add_theme_constant_override("separation", 8)
+	dialog.add_child(form)
+	if cheats_unlocked:
+		build_cheat_toggles(form)
+	else:
+		add_dialog_label(form, "Enter the password to unlock cheat mode.")
+		var password := LineEdit.new()
+		password.secret = true
+		password.placeholder_text = "Password"
+		form.add_child(password)
+		var status := add_dialog_label(form, "")
+		var unlock := Button.new()
+		unlock.text = "Unlock"
+		form.add_child(unlock)
+		var try_unlock := func():
+			if password.text.sha256_text() == CHEAT_HASH:
+				cheats_unlocked = true
+				for child in form.get_children():
+					child.queue_free()
+				build_cheat_toggles(form)
+				dialog.reset_size()
+			else:
+				status.text = "Wrong password."
+				password.clear()
+		unlock.pressed.connect(try_unlock)
+		password.text_submitted.connect(func(_text: String): try_unlock.call())
+	add_child(dialog)
+	dialog.popup_centered()
+
+func add_dialog_label(parent: Control, value: String) -> Label:
+	var label := Label.new()
+	label.text = value
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(label)
+	return label
+
+func build_cheat_toggles(form: VBoxContainer) -> void:
+	add_dialog_label(form, "Cheats apply to the next match you start.")
+	for key in CHEAT_OPTIONS:
+		var toggle := CheckBox.new()
+		toggle.text = CHEAT_OPTIONS[key]
+		toggle.button_pressed = cheats.get(key, false)
+		toggle.toggled.connect(func(on: bool):
+			if on:
+				cheats[key] = true
+			else:
+				cheats.erase(key))
+		form.add_child(toggle)
 
 func return_home() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

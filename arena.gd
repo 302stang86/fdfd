@@ -24,6 +24,7 @@ const CAR_WRECK_MODELS: Array[PackedScene] = [preload("res://assets/models/car_w
 const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
 const BOT_MODEL := preload("res://bot_model.gd")
+const ARENA_SCENERY := preload("res://arena_scenery.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -51,6 +52,7 @@ var marker_id := 0
 var map_id := 0
 var outfit_color := Color("#63774b")
 var custom_layout: Dictionary = {}
+var cheats: Dictionary = {} # set by the menu once cheat mode is unlocked
 var shot_audio: AudioStreamPlayer
 
 func magazine_size() -> int:
@@ -132,6 +134,9 @@ func _ready() -> void:
 			if absi(x) <= 20 and absi(z) <= 16:
 				box(Vector3(x, 0.65, z), Vector3(1.7, 1.3, 1.7), Color("#a17443"))
 
+	var scenery := ARENA_SCENERY.new()
+	add_child(scenery)
+	scenery.build(self, ARENA_EDGE, map_id, urban_footprint() if map_id == URBAN_MAP else PackedVector2Array())
 	arena_splats = Node3D.new()
 	add_child(arena_splats)
 	paintball_mesh = SphereMesh.new()
@@ -320,7 +325,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ENTER and outcome != "":
 			start_match()
 		if event.keycode == KEY_R and countdown_left <= 0.0 and reload <= 0 and ammo < magazine_size() and outcome == "":
-			reload = RELOAD_TIMES[marker_id]
+			reload = 0.01 if cheats.get("fast_reload", false) else RELOAD_TIMES[marker_id]
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -408,7 +413,8 @@ func trace(from: Vector3, to: Vector3, excluded: RID) -> Dictionary:
 func shoot() -> void:
 	if countdown_left > 0.0 or cooldown > 0 or reload > 0 or ammo == 0:
 		return
-	ammo -= 1
+	if not cheats.get("infinite_ammo", false):
+		ammo -= 1
 	cooldown = SHOT_INTERVALS[marker_id]
 	shot_audio.play()
 	marker_view.punch()
@@ -492,6 +498,8 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 		outcome = "Arena cleared! Press Enter to restart."
 
 func hurt_player() -> void:
+	if cheats.get("god_mode", false):
+		return
 	health -= 1
 	update_hit_counter()
 	if health <= 0:
@@ -505,7 +513,7 @@ func remaining_opponents() -> int:
 	return count
 
 func damage_bot(bot: CharacterBody3D, from: Vector3) -> void:
-	var remaining := int(bot.get_meta("health")) - 1
+	var remaining := 0 if cheats.get("one_hit", false) else int(bot.get_meta("health")) - 1
 	bot.set_meta("health", remaining)
 	if remaining > 0:
 		bot_ai.hit(bot, from)
@@ -637,9 +645,17 @@ func update_hud() -> void:
 	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
+	if not cheats.is_empty():
+		status += "   |   CHEATS ON"
 	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
 		status, remaining_opponents(), message
 	]
+
+func urban_footprint() -> PackedVector2Array:
+	var outline := PackedVector2Array()
+	for vertex in URBAN_BORDER.LOOP:
+		outline.append((Vector2(vertex) - URBAN_BORDER.GRID_CENTER) * 6.0)
+	return outline
 
 func build_urban_arena() -> void:
 	spawn = Vector3(0, 0.1, 31.8)
