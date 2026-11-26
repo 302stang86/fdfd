@@ -150,7 +150,7 @@ func open_editor() -> void:
 	drafting = {}
 	var dialog := AcceptDialog.new()
 	dialog.title = "Create an arena"
-	dialog.ok_button_text = "Save map"
+	dialog.get_ok_button().hide()
 	dialog.exclusive = true
 	dialog.close_requested.connect(dialog.queue_free)
 	dialog.dialog_hide_on_ok = false
@@ -187,7 +187,11 @@ func open_editor() -> void:
 			grid.add_child(tile)
 	editor_status = Label.new()
 	form.add_child(editor_status)
-	dialog.confirmed.connect(func(): save_map(dialog))
+	var save := Button.new()
+	save.text = "Save map"
+	save.pressed.connect(func(): save_map(dialog))
+	form.add_child(save)
+	map_name.text_submitted.connect(func(_value: String): save_map(dialog))
 	add_child(dialog)
 	dialog.popup_centered(Vector2i(460, 405))
 
