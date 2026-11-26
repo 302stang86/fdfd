@@ -109,6 +109,7 @@ func register(bot: CharacterBody3D, team: int, index: int) -> void:
 	bot.set_meta("team", team)
 	bot.set_meta("role", ROLE_NAMES[bot_state.role])
 	bot.set_meta("marker", bot_state.marker)
+	bot.get_meta("paint_sprite").update_motion(bot_state.facing, 0.0, 0.0)
 
 func remove(bot: CharacterBody3D) -> void:
 	states.erase(bot)
@@ -304,6 +305,9 @@ func follow_path(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	bot.velocity.z = travel.z * speed
 	bot.velocity.y -= 12.0 * delta
 	bot.move_and_slide()
+	var motion := bot.get_real_velocity()
+	motion.y = 0.0
+	bot.get_meta("paint_sprite").update_motion(state.facing, motion.length(), delta)
 
 func fire(bot: CharacterBody3D, state: BotState) -> void:
 	var origin := bot.position + Vector3.UP * (0.72 if bot.get_meta("crouched") else 1.22)
