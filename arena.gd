@@ -27,6 +27,7 @@ const BOT_MODEL := preload("res://bot_model.gd")
 const ARENA_SCENERY := preload("res://arena_scenery.gd")
 const STREET_PROPS := preload("res://street_props.gd")
 const PLAYER_BODY := preload("res://player_body.gd")
+const MAP_LAYOUT := preload("res://map_layout.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -126,6 +127,8 @@ func _ready() -> void:
 		build_field_day()
 	elif map_id == URBAN_MAP:
 		build_urban_arena()
+	elif map_id > URBAN_MAP and MAP_LAYOUT.is_v2(custom_layout):
+		MAP_LAYOUT.new().build(self, custom_layout)
 	elif map_id > URBAN_MAP:
 		for cell in custom_layout:
 			var coordinates := String(cell).split(",")

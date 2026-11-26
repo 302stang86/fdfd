@@ -167,16 +167,30 @@ func scene_for(name: String) -> PackedScene:
 		scenes[name] = load(path) as PackedScene
 	return scenes[name]
 
-func place(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
+# Places one prop under `arena` and returns its root node. `height` lifts it off the ground (stacking)
+# and `scl` scales it uniformly.
+func place(arena: Node3D, name: String, at: Vector2, yaw: float, height: float = 0.0, scl: float = 1.0) -> Node3D:
+	var node: Node3D
 	if CLIMB.has(name):
-		place_climbable(arena, name, at, yaw)
-		return
-	if ENTER.has(name):
-		place_enterable(arena, name, at, yaw)
-		return
+		node = place_climbable(arena, name, at, yaw)
+	elif ENTER.has(name):
+		node = place_enterable(arena, name, at, yaw)
+	else:
+		node = place_basic(arena, name, at, yaw)
+	if node == null:
+		return null
+	node.position.y = height
+	node.scale = Vector3.ONE * scl
+	if not node.has_meta("keep_radius"):
+		var size: Vector3 = DIMS[name][0] if DIMS.has(name) else Vector3.ONE
+		mark_keep_out(node, maxf(size.x, size.z) * 0.6)
+	node.set_meta("keep_radius", float(node.get_meta("keep_radius")) * scl)
+	return node
+
+func place_basic(arena: Node3D, name: String, at: Vector2, yaw: float) -> Node3D:
 	var scene := scene_for(name) if name != "crate" else null
 	if scene == null and name != "crate":
-		return
+		return null
 	var info: Array = DIMS[name]
 	var body := StaticBody3D.new()
 	body.position = Vector3(at.x, 0.0, at.y)
@@ -202,6 +216,7 @@ func place(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
 		block.material_override = paint
 		body.add_child(block)
 	arena.add_child(body)
+	return body
 
 # One editor cell: value is `true` (older saves: a crate) or "id" / "id:degrees".
 func place_cell(arena: Node3D, cell: Vector2, value) -> void:
@@ -220,11 +235,11 @@ func mark_keep_out(root: Node3D, radius: float) -> void:
 	root.set_meta("keep_radius", radius)
 	root.add_to_group("keep_out")
 
-func place_climbable(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
+func place_climbable(arena: Node3D, name: String, at: Vector2, yaw: float) -> Node3D:
 	var scene := scene_for(name)
 	var data: Dictionary = CLIMB[name]
 	if scene == null:
-		return
+		return null
 	var body := StaticBody3D.new()
 	body.position = Vector3(at.x, 0.0, at.y)
 	body.rotation.y = yaw
@@ -264,12 +279,13 @@ func place_climbable(arena: Node3D, name: String, at: Vector2, yaw: float) -> vo
 	body.add_child(ladder)
 	arena.add_child(body)
 	mark_keep_out(body, reach * 0.55 + 0.6)
+	return body
 
-func place_enterable(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
+func place_enterable(arena: Node3D, name: String, at: Vector2, yaw: float) -> Node3D:
 	var scene := scene_for(name)
 	var data: Dictionary = ENTER[name]
 	if scene == null:
-		return
+		return null
 	var root := Node3D.new()
 	root.set_script(ENTERABLE_SCRIPT)
 	root.position = Vector3(at.x, 0.0, at.y)
@@ -299,3 +315,4 @@ func place_enterable(arena: Node3D, name: String, at: Vector2, yaw: float) -> vo
 	root.hide_area = zone
 	arena.add_child(root)
 	mark_keep_out(root, data["radius"])
+	return root

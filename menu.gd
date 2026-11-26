@@ -1,6 +1,7 @@
 extends Control
 
 const STREET_PROPS := preload("res://street_props.gd")
+const MAP_EDITOR := preload("res://map_editor.gd")
 const ARENA := preload("res://arena.tscn")
 const CHARACTER_PREVIEW := preload("res://character_preview.gd")
 const MAP_FILE := "user://arenas.json"
@@ -28,10 +29,7 @@ var preview: ColorRect
 var saved_maps: Dictionary = {}
 var arena: Node
 var settings := ConfigFile.new()
-var map_name: LineEdit
-var grid: GridContainer
-var drafting: Dictionary = {}
-var editor_status: Label
+var editor: Node3D
 var cheats_unlocked := false # lasts for this run only, the password is asked again next launch
 var cheats: Dictionary = {}
 
@@ -299,94 +297,67 @@ func return_home() -> void:
 	show()
 
 func open_editor() -> void:
-	drafting = {}
-	var dialog := AcceptDialog.new()
-	dialog.title = "Create an arena"
-	dialog.get_ok_button().hide()
-	dialog.exclusive = true
-	dialog.close_requested.connect(dialog.queue_free)
-	dialog.dialog_hide_on_ok = false
-	var form := VBoxContainer.new()
-	dialog.add_child(form)
-	map_name = LineEdit.new()
-	map_name.placeholder_text = "New map name"
-	map_name.max_length = 40
-	form.add_child(map_name)
-	var instructions := Label.new()
-	instructions.text = "Pick an object, then click cells to place it. Spawns and arena walls are added automatically."
-	instructions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	form.add_child(instructions)
-	var tools := HBoxContainer.new()
-	form.add_child(tools)
-	var palette := OptionButton.new()
-	for id in STREET_PROPS.catalog():
-		palette.add_item(STREET_PROPS.label_of(id)[0])
-		palette.set_item_metadata(palette.item_count - 1, id)
-	palette.tooltip_text = "Object placed when you click an empty cell"
-	tools.add_child(palette)
-	var turn := OptionButton.new()
-	for degrees in [0, 90, 180, 270]:
-		turn.add_item("Rotate %d°" % degrees)
-		turn.set_item_metadata(turn.item_count - 1, degrees)
-	tools.add_child(turn)
-	var hint := Label.new()
-	hint.text = " Click an empty cell to place, a filled cell to remove."
-	tools.add_child(hint)
-	grid = GridContainer.new()
-	grid.columns = 12
-	form.add_child(grid)
-	for z in range(10):
-		for x in range(12):
-			var tile := Button.new()
-			tile.text = "·"
-			tile.custom_minimum_size = Vector2(29, 23)
-			var cell := "%d,%d" % [(x * 3) - 16, (z * 3) - 13]
-			if cell == "17,-4":
-				tile.disabled = true
-				tile.tooltip_text = "Bot spawn"
-			tile.pressed.connect(func():
-				if drafting.has(cell):
-					drafting.erase(cell)
-					tile.text = "·"
-					tile.tooltip_text = ""
-				else:
-					var id: String = palette.get_selected_metadata()
-					var degrees: int = turn.get_selected_metadata()
-					drafting[cell] = "%s:%d" % [id, degrees]
-					tile.text = STREET_PROPS.label_of(id)[1]
-					tile.tooltip_text = STREET_PROPS.label_of(id)[0]
-			)
-			grid.add_child(tile)
-	editor_status = Label.new()
-	form.add_child(editor_status)
-	var save := Button.new()
-	save.text = "Save map"
-	save.pressed.connect(func(): save_map(dialog))
-	form.add_child(save)
-	map_name.text_submitted.connect(func(_value: String): save_map(dialog))
-	add_child(dialog)
-	dialog.popup_centered(Vector2i(560, 420))
+	editor = MAP_EDITOR.new()
+	editor.saved_maps = saved_maps.duplicate(true)
+	editor.map_saved.connect(on_editor_saved)
+	editor.map_deleted.connect(on_editor_deleted)
+	editor.closed.connect(close_editor)
+	editor.test_requested.connect(test_layout)
+	hide()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	add_child(editor)
+	editor.make_current()
 
-func save_map(dialog: AcceptDialog) -> void:
-	var title := map_name.text.strip_edges()
-	if title.is_empty() or saved_maps.has(title):
-		editor_status.text = "Choose a new, unique map name."
-		return
-	var layout := {}
-	for key in drafting:
-		layout[key] = drafting[key]
-	var updated := saved_maps.duplicate()
-	updated[title] = layout
+func write_maps() -> bool:
 	var file := FileAccess.open(MAP_FILE, FileAccess.WRITE)
 	if file == null:
-		editor_status.text = "The map could not be saved."
-		return
-	file.store_string(JSON.stringify(updated))
+		return false
+	file.store_string(JSON.stringify(saved_maps))
 	file.close()
-	saved_maps = updated
+	return true
+
+func select_saved_map(title: String) -> void:
 	refresh_maps()
 	for index in range(3, maps.item_count):
 		if maps.get_item_metadata(index) == title:
 			maps.select(index)
 			break
-	dialog.queue_free()
+
+func on_editor_saved(title: String, layout: Dictionary) -> void:
+	saved_maps[title] = layout
+	if not write_maps():
+		editor.set_status("The map could not be written to disk.")
+	select_saved_map(title)
+
+func on_editor_deleted(title: String) -> void:
+	saved_maps.erase(title)
+	write_maps()
+	refresh_maps()
+
+func close_editor() -> void:
+	if editor != null:
+		editor.queue_free()
+		editor = null
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	show()
+
+# Test-play the map being edited. The editor leaves the scene tree while the match runs.
+func test_layout(layout: Dictionary) -> void:
+	remove_child(editor)
+	arena = ARENA.instantiate()
+	arena.marker_id = markers.selected
+	arena.outfit_color = Color(COLORS[outfits.selected])
+	arena.map_id = 3
+	arena.team_match = mode_picker.selected == 1
+	arena.difficulty = difficulty_picker.selected
+	arena.cheats = cheats.duplicate()
+	arena.custom_layout = layout
+	arena.menu_requested.connect(return_to_editor)
+	add_child(arena)
+
+func return_to_editor() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	arena.queue_free()
+	arena = null
+	add_child(editor)
+	editor.make_current()
