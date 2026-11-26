@@ -35,12 +35,27 @@ jobs:
       - name: Export the game
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/site"
+          build="build-${GITHUB_SHA:0:12}"
+          site="$RUNNER_TEMP/site"
+          export_dir="$site/$build"
+          mkdir -p "$export_dir"
           "$RUNNER_TEMP/godot" --headless --path "$GITHUB_WORKSPACE" --editor --import
-          "$RUNNER_TEMP/godot" --headless --path "$GITHUB_WORKSPACE" --export-release Web "$RUNNER_TEMP/site/index.html"
-          test -s "$RUNNER_TEMP/site/index.html"
-          test -s "$RUNNER_TEMP/site/index.wasm"
-          test -s "$RUNNER_TEMP/site/index.pck"
+          "$RUNNER_TEMP/godot" --headless --path "$GITHUB_WORKSPACE" --export-release Web "$export_dir/index.html"
+          test -s "$export_dir/index.html"
+          test -s "$export_dir/index.wasm"
+          test -s "$export_dir/index.pck"
+          cat > "$site/index.html" <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta http-equiv="refresh" content="0; url=./$build/">
+            <title>Fire Defense Field Day</title>
+          </head>
+          <body><a href="./$build/">Open Fire Defense Field Day</a></body>
+          </html>
+          EOF
       - uses: actions/upload-pages-artifact@v4
         with:
           path: ${{ runner.temp }}/site
