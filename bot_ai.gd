@@ -137,7 +137,7 @@ func update(delta: float) -> void:
 			team_reports.erase(team)
 	step_timer -= delta
 	if step_timer <= 0.0 and arena.player.is_on_floor() and Vector2(arena.player.velocity.x, arena.player.velocity.z).length() > 0.5:
-		heard(0, arena.player.position, 9.0)
+		heard(0, arena.player.position, 3.0 if arena.crouched else 9.0)
 		step_timer = 0.35
 	for bot in states:
 		tick_bot(bot, states[bot], delta)
@@ -219,7 +219,7 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 	for candidate in candidates:
 		if candidate == bot or int(candidate.get_meta("team", 0)) == state.team:
 			continue
-		var end: Vector3 = candidate.position + Vector3.UP * 1.12
+		var end: Vector3 = candidate.position + Vector3.UP * (0.72 if candidate == arena.player and arena.crouched else 1.12)
 		var difference := end - origin
 		var distance := difference.length()
 		if distance >= best_distance:
@@ -306,7 +306,7 @@ func follow_path(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 
 func fire(bot: CharacterBody3D, state: BotState) -> void:
 	var origin := bot.position + Vector3.UP * 1.22
-	var aim := state.target.position + Vector3.UP * 0.86
+	var aim := state.target.position + Vector3.UP * (0.58 if state.target == arena.player and arena.crouched else 0.86)
 	var distance := origin.distance_to(aim)
 	var max_range := 29.0 if state.marker == 1 else 21.0
 	if distance > max_range or (state.marker == 2 and distance < 4.0):
