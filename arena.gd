@@ -38,6 +38,8 @@ func magazine_size() -> int:
 var player: CharacterBody3D
 var camera: Camera3D
 var hud: Label
+var loss_popup: ColorRect
+var return_button: Button
 var hit_circles: Array[Panel] = []
 var empty_hit_style: StyleBoxFlat
 var filled_hit_style: StyleBoxFlat
@@ -133,6 +135,7 @@ func _ready() -> void:
 	countdown_label.add_theme_constant_override("outline_size", 13)
 	countdown_label.add_theme_color_override("font_outline_color", Color("#172021"))
 	center.add_child(countdown_label)
+	create_loss_popup(overlay)
 	start_match()
 	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -219,6 +222,7 @@ func start_match() -> void:
 	cooldown = 0
 	bot_clock = 0
 	outcome = ""
+	loss_popup.hide()
 	fire_requested = false
 	countdown_left = COUNTDOWN_DURATION
 	go_left = 0.0
@@ -226,6 +230,8 @@ func start_match() -> void:
 	update_hud()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if loss_popup.visible:
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_M and not menu_requested.get_connections().is_empty():
 			menu_requested.emit()
@@ -389,7 +395,7 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 		health -= 1
 		update_hit_counter()
 		if health <= 0:
-			outcome = "Tagged out! Press Enter to restart."
+			show_loss_popup()
 
 	if ball.splash:
 		var splash_start := position_hit + normal * 0.09
@@ -451,6 +457,52 @@ func update_countdown() -> void:
 	countdown_label.visible = countdown_left > 0.0 or go_left > 0.0
 	countdown_label.text = str(ceili(countdown_left)) if countdown_left > 0.0 else "GO!"
 
+func create_loss_popup(overlay: CanvasLayer) -> void:
+	loss_popup = ColorRect.new()
+	loss_popup.color = Color("#0a1015bb")
+	loss_popup.hide()
+	overlay.add_child(loss_popup)
+	loss_popup.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center := CenterContainer.new()
+	loss_popup.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("#24373d")
+	style.border_color = Color("#65848b")
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(12)
+	for side in [SIDE_TOP, SIDE_BOTTOM, SIDE_LEFT, SIDE_RIGHT]:
+		style.set_content_margin(side, 24)
+	panel.add_theme_stylebox_override("panel", style)
+	center.add_child(panel)
+	var layout := VBoxContainer.new()
+	layout.add_theme_constant_override("separation", 18)
+	panel.add_child(layout)
+	var message := Label.new()
+	message.text = "Failed-No PTO Approved"
+	message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	message.add_theme_font_size_override("font_size", 30)
+	layout.add_child(message)
+	return_button = Button.new()
+	return_button.text = "Return to Main Menu"
+	return_button.custom_minimum_size.y = 40
+	return_button.pressed.connect(return_from_loss)
+	layout.add_child(return_button)
+
+func show_loss_popup() -> void:
+	outcome = "failed"
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	loss_popup.show()
+	return_button.grab_focus()
+
+func return_from_loss() -> void:
+	if menu_requested.get_connections().is_empty():
+		get_tree().change_scene_to_file("res://menu.tscn")
+	else:
+		menu_requested.emit()
+
 func create_hit_counter(overlay: CanvasLayer) -> void:
 	var circle_size := 22
 	var separation := 8
@@ -486,7 +538,7 @@ func update_hit_counter() -> void:
 		hit_circles[index].add_theme_stylebox_override("panel", style)
 
 func update_hud() -> void:
-	var message := outcome
+	var message := "" if loss_popup.visible else outcome
 	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
