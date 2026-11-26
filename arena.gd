@@ -19,6 +19,7 @@ const BOT_SPRITE := preload("res://bot_sprite.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
+const MARKER_VIEW := preload("res://marker_view.gd")
 const PROJECTILE_SPEEDS := [48.0, 66.0, 29.0]
 
 class Paintball:
@@ -53,6 +54,7 @@ var standing_capsule: CapsuleShape3D
 var crouching_capsule: CapsuleShape3D
 var crouched := false
 var camera: Camera3D
+var marker_view: MARKER_VIEW
 var hud: Label
 var loss_popup: ColorRect
 var return_button: Button
@@ -136,8 +138,9 @@ func _ready() -> void:
 	camera.position.y = STANDING_EYE
 	camera.current = true
 	player.add_child(camera)
-	box(Vector3(0.32, -0.24, -0.54), Vector3(0.16, 0.15, 0.38), outfit_color, camera, false)
-	box(Vector3(0.32, -0.15, -0.68), Vector3(0.09, 0.08, 0.41), Color("#27323b"), camera, false)
+	marker_view = MARKER_VIEW.new()
+	camera.add_child(marker_view)
+	marker_view.build(marker_id, outfit_color)
 	create_shot_audio()
 	var overlay := CanvasLayer.new()
 	add_child(overlay)
@@ -282,6 +285,7 @@ func start_match() -> void:
 	player.rotation.y = 0
 	player.velocity = Vector3.ZERO
 	camera.rotation.x = 0
+	marker_view.reset_motion()
 	health = MAX_HEALTH
 	update_hit_counter()
 	ammo = magazine_size()
@@ -349,8 +353,11 @@ func _physics_process(delta: float) -> void:
 	if not crouched and player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
 		player.velocity.y = 3.3
 	player.move_and_slide()
-	var aim_fov: float = AIM_FOVS[marker_id] if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) else 78.0
+	var aiming := Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and reload <= 0.0
+	var aim_fov: float = AIM_FOVS[marker_id] if aiming else 78.0
 	camera.fov = move_toward(camera.fov, aim_fov, 120.0 * delta)
+	var reload_progress := 1.0 - reload / float(RELOAD_TIMES[marker_id]) if reload > 0.0 else 0.0
+	marker_view.animate(delta, aiming, reload_progress, movement.length() > 0.1 and player.is_on_floor())
 	cooldown = maxf(cooldown - delta, 0)
 	if fire_requested:
 		fire_requested = false
@@ -396,11 +403,12 @@ func shoot() -> void:
 	ammo -= 1
 	cooldown = SHOT_INTERVALS[marker_id]
 	shot_audio.play()
+	marker_view.punch()
 	var origin := camera.global_position
 	var aim_end := origin - camera.global_basis.z * 70
 	var hit := trace(origin, aim_end, player.get_rid())
 	var target: Vector3 = hit.get("position", aim_end)
-	var muzzle := camera.to_global(Vector3(0.27, -0.14, -0.72))
+	var muzzle := marker_view.muzzle.global_position
 	var muzzle_blocked := trace(origin, muzzle, player.get_rid())
 	if not muzzle_blocked.is_empty() or origin.distance_to(target) < 0.8:
 		muzzle = origin
