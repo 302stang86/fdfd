@@ -79,7 +79,7 @@ func _ready() -> void:
 	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	crosshair.position -= crosshair.size / 2.0
 	start_match()
-	if not DisplayServer.get_name() == "headless":
+	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func actor(point: Vector3) -> CharacterBody3D:
@@ -246,5 +246,5 @@ func shoot() -> void:
 func update_hud() -> void:
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, MAGAZINE]
 	hud.text = "%s   |   Hits remaining: %d   |   Bots: %d\nWASD move   Space jump   LMB tag   RMB aim   R reload\n%s" % [
-		status, health, bots.size(), outcome
+		status, health, bots.size(), "Click the arena to capture the mouse." if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED else outcome
 	]
