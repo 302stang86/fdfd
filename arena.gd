@@ -23,7 +23,7 @@ const RUBBLE_MODELS: Array[PackedScene] = [preload("res://assets/models/rubble_p
 const CAR_WRECK_MODELS: Array[PackedScene] = [preload("res://assets/models/car_wreck.glb")]
 const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
-const BOT_SPRITE := preload("res://bot_sprite.gd")
+const BOT_MODEL := preload("res://bot_model.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -187,7 +187,7 @@ func actor(point: Vector3, is_bot: bool = false, team: int = 0, skin: int = 0) -
 		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42))
 		body.set_meta("health", MAX_HEALTH)
 		body.set_meta("crouched", false)
-		var sprite := BOT_SPRITE.new()
+		var sprite := BOT_MODEL.new()
 		body.add_child(sprite)
 		sprite.setup(skin, team == 0)
 		body.set_meta("paint_sprite", sprite)
@@ -226,7 +226,7 @@ func set_bot_crouch(bot: CharacterBody3D, enabled: bool) -> void:
 		var shape := collider.shape as BoxShape3D
 		collider.position.y = STANDING_CENTERS[part] * ratio
 		shape.size.y = STANDING_SIZES[part] * ratio
-	var sprite: BOT_SPRITE = bot.get_meta("paint_sprite")
+	var sprite: BOT_MODEL = bot.get_meta("paint_sprite")
 	sprite.set_crouching(enabled)
 
 func box(point: Vector3, dimensions: Vector3, color: Color, parent: Node3D = null,
