@@ -13,6 +13,7 @@ const MAX_HEALTH := 5
 const ARENA_SIZE := 96.0
 const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
+const BOT_SPRITE := preload("res://bot_sprite.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -163,12 +164,17 @@ func _ready() -> void:
 	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-func actor(point: Vector3, is_bot: bool = false, team: int = 0) -> CharacterBody3D:
+func actor(point: Vector3, is_bot: bool = false, team: int = 0, skin: int = 0) -> CharacterBody3D:
 	var body := CharacterBody3D.new()
 	if is_bot:
-		add_bot_part(body, Vector3(0, 0.55, 0), Vector3(0.55, 0.95, 0.4), Color("#32a9b0") if team == 0 else Color("#cc6846"))
-		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42), Color("#fed497"))
+		add_bot_part(body, Vector3(0, 0.55, 0), Vector3(0.55, 0.95, 0.4))
+		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42))
 		body.set_meta("health", MAX_HEALTH)
+		body.set_meta("crouched", false)
+		var sprite := BOT_SPRITE.new()
+		body.add_child(sprite)
+		sprite.setup(skin, team == 0)
+		body.set_meta("paint_sprite", sprite)
 	else:
 		standing_capsule = CapsuleShape3D.new()
 		standing_capsule.radius = 0.28
@@ -184,14 +190,28 @@ func actor(point: Vector3, is_bot: bool = false, team: int = 0) -> CharacterBody
 	body.floor_snap_length = 0.35
 	return body
 
-func add_bot_part(body: CharacterBody3D, point: Vector3, dimensions: Vector3, color: Color) -> void:
+func add_bot_part(body: CharacterBody3D, point: Vector3, dimensions: Vector3) -> void:
 	var collider := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = dimensions
 	collider.shape = shape
 	collider.position = point
 	body.add_child(collider)
-	box(point, dimensions, color, body, false)
+
+func set_bot_crouch(bot: CharacterBody3D, enabled: bool) -> void:
+	if bot.get_meta("crouched") == enabled:
+		return
+	bot.set_meta("crouched", enabled)
+	const STANDING_CENTERS := [0.55, 1.26]
+	const STANDING_SIZES := [0.95, 0.42]
+	var ratio := CROUCH_HEIGHT / STANDING_HEIGHT if enabled else 1.0
+	for part in range(2):
+		var collider := bot.get_child(part) as CollisionShape3D
+		var shape := collider.shape as BoxShape3D
+		collider.position.y = STANDING_CENTERS[part] * ratio
+		shape.size.y = STANDING_SIZES[part] * ratio
+	var sprite: BOT_SPRITE = bot.get_meta("paint_sprite")
+	sprite.set_crouching(enabled)
 
 func box(point: Vector3, dimensions: Vector3, color: Color, parent: Node3D = null,
 		collision: bool = true, visible_mesh: bool = true) -> Node3D:
@@ -236,9 +256,11 @@ func start_match() -> void:
 	if team_match:
 		locations[3] = Vector3(-12, 0.1, 33)
 		locations[4] = Vector3(12, 0.1, 33)
+	var skins := [0, 1, 2, 3, 4, 5, 6, 7]
+	skins.shuffle()
 	for index in range(locations.size()):
 		var team := 0 if team_match and index >= 3 else 1
-		var bot := actor(locations[index], true, team)
+		var bot := actor(locations[index], true, team, skins[index])
 		bots.append(bot)
 		bot_ai.register(bot, team, index)
 	player.position = spawn
@@ -416,7 +438,7 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 	var direct_bot := target is CharacterBody3D and bots.has(target)
 	if direct_bot:
 		if int(target.get_meta("team")) != ball.team:
-			add_splat(position_hit, normal, ball.color, 0.15, target, true)
+			target.get_meta("paint_sprite").paint(position_hit, ball.color)
 			damage_bot(target, ball.source)
 	elif target == player:
 		if ball.team != 0:
@@ -431,7 +453,7 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 				continue
 			var splash_hit := trace(splash_start, bot.position + Vector3.UP * 0.65, ball.excluded)
 			if splash_hit.get("collider") == bot:
-				add_splat(splash_hit["position"], splash_hit["normal"], ball.color, 0.15, bot, true)
+				bot.get_meta("paint_sprite").paint(splash_hit["position"], ball.color)
 				damage_bot(bot, ball.source)
 		if ball.team != 0 and target != player and player.position.distance_to(position_hit) <= 4.0:
 			var player_hit := trace(splash_start, player.position + Vector3.UP * 0.65, ball.excluded)
