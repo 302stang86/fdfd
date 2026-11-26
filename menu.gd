@@ -1,6 +1,7 @@
 extends Control
 
 const ARENA := preload("res://arena.tscn")
+const CHARACTER_PREVIEW := preload("res://character_preview.gd")
 const MAP_FILE := "user://arenas.json"
 const CONFIG_FILE := "user://field-day.cfg"
 const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo / goth"]
@@ -68,11 +69,21 @@ func _ready() -> void:
 	apply_volume(volume.value)
 	volume.value_changed.connect(apply_volume)
 	outfits = picker("Character", OUTFITS)
+	var character_row := HBoxContainer.new()
+	character_row.add_theme_constant_override("separation", 8)
+	home.add_child(character_row)
+	outfits.reparent(character_row)
+	outfits.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outfits.select(5)
+	var open_preview := Button.new()
+	open_preview.text = "Preview"
+	open_preview.pressed.connect(show_character_preview)
+	character_row.add_child(open_preview)
 	preview = ColorRect.new()
 	preview.custom_minimum_size.y = 7
 	home.add_child(preview)
 	outfits.item_selected.connect(func(index: int): preview.color = Color(COLORS[index]))
-	preview.color = Color(COLORS[0])
+	preview.color = Color(COLORS[outfits.selected])
 	markers = picker("Paintball marker", MARKERS)
 	description = add_label(DESCRIPTIONS[0])
 	markers.item_selected.connect(func(index: int): description.text = DESCRIPTIONS[index])
@@ -127,6 +138,54 @@ func apply_volume(value: float) -> void:
 	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(value / 100.0, 0.001)))
 	settings.set_value("audio", "volume", value)
 	settings.save(CONFIG_FILE)
+
+func show_character_preview() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = outfits.get_item_text(outfits.selected)
+	dialog.ok_button_text = "Close"
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.close_requested.connect(dialog.queue_free)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 8)
+	dialog.add_child(content)
+	var display := SubViewportContainer.new()
+	display.custom_minimum_size = Vector2(380, 280)
+	display.stretch = true
+	display.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(display)
+	var viewport := SubViewport.new()
+	viewport.own_world_3d = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	display.add_child(viewport)
+	var platform := Node3D.new()
+	viewport.add_child(platform)
+	var world := WorldEnvironment.new()
+	world.environment = Environment.new()
+	world.environment.background_mode = Environment.BG_COLOR
+	world.environment.background_color = Color("#35474e")
+	world.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	world.environment.ambient_light_color = Color("#ffffff")
+	world.environment.ambient_light_energy = 0.6
+	platform.add_child(world)
+	var light := DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-36, 26, 0)
+	platform.add_child(light)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = 1.85
+	camera.position = Vector3(2.1, 1.36, 4.6)
+	platform.add_child(camera)
+	var model := CHARACTER_PREVIEW.new()
+	model.build(outfits.selected)
+	platform.add_child(model)
+	var pose := CheckButton.new()
+	pose.text = "Crouching pose"
+	pose.toggled.connect(model.set_crouching)
+	content.add_child(pose)
+	add_child(dialog)
+	camera.look_at(Vector3(0, 0.76, 0))
+	camera.make_current()
+	dialog.popup_centered(Vector2i(430, 370))
 
 func show_info(title: String, body: String) -> void:
 	var dialog := AcceptDialog.new()
