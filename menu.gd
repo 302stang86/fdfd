@@ -86,7 +86,7 @@ func _ready() -> void:
 	add_button("Play match", play_match)
 	add_button("Create a map", open_editor)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse. Use WASD to move, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag every opposing bot to win. Teammates wear teal in 3v3. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
+		"Click the arena to capture the mouse. Use WASD to move, hold C to crouch, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag every opposing bot to win. Teammates wear teal in 3v3. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
