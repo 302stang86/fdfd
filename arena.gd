@@ -4,6 +4,21 @@ const SPEED := 5.0
 const LOOK := 0.0025
 const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
+const MAX_HEALTH := 5
+const SPLAT_SECONDS := 4.0
+const PLAYER_PAINT := Color("#f5e438")
+const BOT_PAINT := Color("#fa4eaa")
+const PROJECTILE_SPEEDS := [48.0, 66.0, 29.0]
+
+class Paintball:
+	var mesh: MeshInstance3D
+	var velocity: Vector3
+	var excluded: RID
+	var color: Color
+	var player_shot: bool
+	var splash: bool
+	var distance_left := 70.0
+
 signal menu_requested
 
 const MAGAZINES := [16, 6, 4]
@@ -29,9 +44,13 @@ var countdown_left := COUNTDOWN_DURATION
 var go_left := 0.0
 var bots: Array[CharacterBody3D] = []
 var bot_velocities: Array[Vector3] = []
+var paintballs: Array[Paintball] = []
+var arena_splats: Node3D
+var player_splats: Node3D
+var paintball_mesh: SphereMesh
 var spawn := Vector3(0, 0.1, 19)
 var ammo := 16
-var health := 5
+var health := MAX_HEALTH
 var reload := 0.0
 var cooldown := 0.0
 var bot_clock := 0.0
@@ -72,8 +91,18 @@ func _ready() -> void:
 			if absi(x) <= 20 and absi(z) <= 16:
 				box(Vector3(x, 0.65, z), Vector3(1.7, 1.3, 1.7), Color("#a17443"))
 
+	arena_splats = Node3D.new()
+	add_child(arena_splats)
+	paintball_mesh = SphereMesh.new()
+	paintball_mesh.radius = 0.06
+	paintball_mesh.height = 0.12
+	paintball_mesh.radial_segments = 8
+	paintball_mesh.rings = 4
+
 	player = actor(spawn)
 	player.floor_snap_length = 0.35
+	player_splats = Node3D.new()
+	player.add_child(player_splats)
 	camera = Camera3D.new()
 	camera.position.y = 1.35
 	camera.current = true
@@ -107,18 +136,32 @@ func _ready() -> void:
 	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-func actor(point: Vector3) -> CharacterBody3D:
+func actor(point: Vector3, is_bot: bool = false) -> CharacterBody3D:
 	var body := CharacterBody3D.new()
-	var collider := CollisionShape3D.new()
-	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.28
-	capsule.height = 1.5
-	collider.shape = capsule
-	collider.position.y = 0.75
-	body.add_child(collider)
+	if is_bot:
+		add_bot_part(body, Vector3(0, 0.55, 0), Vector3(0.55, 0.95, 0.4), Color("#cc6846"))
+		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42), Color("#fed497"))
+		body.set_meta("health", MAX_HEALTH)
+	else:
+		var collider := CollisionShape3D.new()
+		var capsule := CapsuleShape3D.new()
+		capsule.radius = 0.28
+		capsule.height = 1.5
+		collider.shape = capsule
+		collider.position.y = 0.75
+		body.add_child(collider)
 	add_child(body)
 	body.position = point
 	return body
+
+func add_bot_part(body: CharacterBody3D, point: Vector3, dimensions: Vector3, color: Color) -> void:
+	var collider := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = dimensions
+	collider.shape = shape
+	collider.position = point
+	body.add_child(collider)
+	box(point, dimensions, color, body, false)
 
 func box(point: Vector3, dimensions: Vector3, color: Color, parent: Node3D = null,
 		collision: bool = true, visible_mesh: bool = true) -> Node3D:
@@ -143,7 +186,16 @@ func box(point: Vector3, dimensions: Vector3, color: Color, parent: Node3D = nul
 	object.position = point
 	return object
 
+func clear_paintballs() -> void:
+	for ball in paintballs:
+		ball.mesh.queue_free()
+	paintballs.clear()
+
 func start_match() -> void:
+	clear_paintballs()
+	for container in [arena_splats, player_splats]:
+		for mark in container.get_children():
+			mark.queue_free()
 	for bot in bots:
 		bot.queue_free()
 	bots.clear()
@@ -153,16 +205,14 @@ func start_match() -> void:
 		Vector3(-17, 0.1, 3), Vector3(17, 0.1, -4)
 	]
 	for point in locations:
-		var bot := actor(point)
-		box(Vector3(0, 0.55, 0), Vector3(0.55, 0.95, 0.4), Color("#cc6846"), bot, false)
-		box(Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42), Color("#fed497"), bot, false)
+		var bot := actor(point, true)
 		bots.append(bot)
 		bot_velocities.append(Vector3.ZERO)
 	player.position = spawn
 	player.rotation.y = 0
 	player.velocity = Vector3.ZERO
 	camera.rotation.x = 0
-	health = 5
+	health = MAX_HEALTH
 	ammo = magazine_size()
 	reload = 0
 	cooldown = 0
@@ -209,6 +259,10 @@ func _physics_process(delta: float) -> void:
 		go_left = maxf(0.0, go_left - delta)
 		if go_left == 0.0:
 			update_countdown()
+	advance_paintballs(delta)
+	if outcome != "":
+		update_hud()
+		return
 	var direction := Vector3(
 		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		0,
@@ -227,8 +281,6 @@ func _physics_process(delta: float) -> void:
 	if fire_requested:
 		fire_requested = false
 		shoot()
-		if outcome != "":
-			return
 	if reload > 0:
 		reload = maxf(reload - delta, 0)
 		if reload == 0:
@@ -256,17 +308,17 @@ func _physics_process(delta: float) -> void:
 		bot.velocity.y -= 12.0 * delta
 		bot.move_and_slide()
 		if bot_fire and target.length() < 15.0 and randf() < 0.4:
-			var hit := trace(bot.position + Vector3.UP * 1.25, camera.global_position, bot)
+			var launch_point := bot.position + Vector3.UP * 1.22
+			var aim_point := camera.global_position - Vector3.UP * 0.22
+			var hit := trace(launch_point, aim_point, bot.get_rid())
 			if hit.get("collider") == player:
-				health -= 1
-				if health == 0:
-					outcome = "Tagged out! Press Enter to restart."
-					break
+				launch_paintball(launch_point, aim_point, bot.get_rid(), false)
+
 	update_hud()
 
-func trace(from: Vector3, to: Vector3, excluded: CharacterBody3D) -> Dictionary:
+func trace(from: Vector3, to: Vector3, excluded: RID) -> Dictionary:
 	var ray := PhysicsRayQueryParameters3D.create(from, to)
-	ray.exclude = [excluded.get_rid()]
+	ray.exclude = [excluded]
 	return get_world_3d().direct_space_state.intersect_ray(ray)
 
 func shoot() -> void:
@@ -276,28 +328,122 @@ func shoot() -> void:
 	cooldown = SHOT_INTERVALS[marker_id]
 	shot_audio.play()
 	var origin := camera.global_position
-	var hit := trace(origin, origin - camera.global_basis.z * 70, player)
-	var tagged: Array[CharacterBody3D] = []
-	var target = hit.get("collider")
-	if target is CharacterBody3D and bots.has(target):
-		tagged.append(target)
-	if marker_id == 2 and not hit.is_empty():
-		var impact: Vector3 = hit["position"]
-		var splash_origin: Vector3 = impact + hit["normal"] * 0.08
-		for bot in bots:
-			if tagged.has(bot) or bot.position.distance_to(impact) > 4.0:
+	var aim_end := origin - camera.global_basis.z * 70
+	var hit := trace(origin, aim_end, player.get_rid())
+	var target: Vector3 = hit.get("position", aim_end)
+	var muzzle := camera.to_global(Vector3(0.27, -0.14, -0.72))
+	var muzzle_blocked := trace(origin, muzzle, player.get_rid())
+	if not muzzle_blocked.is_empty() or origin.distance_to(target) < 0.8:
+		muzzle = origin
+	launch_paintball(muzzle, target, player.get_rid(), true)
+
+func launch_paintball(from: Vector3, to: Vector3, excluded: RID, player_shot: bool) -> void:
+	var ball := Paintball.new()
+	ball.excluded = excluded
+	ball.player_shot = player_shot
+	ball.splash = player_shot and marker_id == 2
+	ball.color = PLAYER_PAINT if player_shot else BOT_PAINT
+	var speed: float = PROJECTILE_SPEEDS[marker_id] if player_shot else 35.0
+	ball.velocity = from.direction_to(to) * speed
+	ball.mesh = MeshInstance3D.new()
+	ball.mesh.mesh = paintball_mesh
+	ball.mesh.material_override = paint_material(ball.color)
+	ball.mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if ball.splash:
+		ball.mesh.scale = Vector3.ONE * 1.65
+	add_child(ball.mesh)
+	ball.mesh.global_position = from
+	paintballs.append(ball)
+
+func advance_paintballs(delta: float) -> void:
+	for index in range(paintballs.size() - 1, -1, -1):
+		var ball := paintballs[index]
+		var origin := ball.mesh.global_position
+		var step := ball.velocity * delta
+		ball.distance_left -= step.length()
+		var hit := trace(origin, origin + step, ball.excluded)
+		if hit.is_empty() and ball.distance_left > 0.0:
+			ball.mesh.global_position += step
+			continue
+		ball.mesh.queue_free()
+		paintballs.remove_at(index)
+		if not hit.is_empty():
+			apply_paint_hit(ball, hit)
+			if outcome != "":
+				clear_paintballs()
+				return
+
+func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
+	var target = hit["collider"]
+	var position_hit: Vector3 = hit["position"]
+	var normal: Vector3 = hit["normal"]
+	var direct_bot := target is CharacterBody3D and bots.has(target)
+	var radius := 0.38 if ball.splash and not direct_bot else 0.15
+	var surface := player_splats if target == player else arena_splats
+	if direct_bot:
+		surface = target
+	add_splat(position_hit, normal, ball.color, radius, surface, direct_bot)
+	if direct_bot and ball.player_shot:
+		damage_bot(target)
+	elif target == player and not ball.player_shot:
+		health -= 1
+		if health <= 0:
+			outcome = "Tagged out! Press Enter to restart."
+
+	if ball.splash:
+		var splash_start := position_hit + normal * 0.09
+		for bot in bots.duplicate():
+			if bot == target or bot.position.distance_to(position_hit) > 4.0:
 				continue
-			var splash := trace(splash_origin, bot.position + Vector3.UP * 0.75, player)
-			if splash.get("collider") == bot:
-				tagged.append(bot)
-	for bot in tagged:
-		var index := bots.find(bot)
-		bots.remove_at(index)
-		bot_velocities.remove_at(index)
-		bot.queue_free()
+			var splash_hit := trace(splash_start, bot.position + Vector3.UP * 0.65, ball.excluded)
+			if splash_hit.get("collider") == bot:
+				add_splat(splash_hit["position"], splash_hit["normal"], ball.color, 0.15, bot, true)
+				damage_bot(bot)
 	if bots.is_empty():
 		outcome = "Arena cleared! Press Enter to restart."
-	update_hud()
+
+func damage_bot(bot: CharacterBody3D) -> void:
+	var remaining := int(bot.get_meta("health")) - 1
+	bot.set_meta("health", remaining)
+	if remaining > 0:
+		return
+	var index := bots.find(bot)
+	bots.remove_at(index)
+	bot_velocities.remove_at(index)
+	bot.queue_free()
+
+func paint_material(color: Color) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return material
+
+func add_splat(point: Vector3, normal: Vector3, color: Color, radius: float, parent: Node3D, persistent: bool) -> void:
+	if normal.is_zero_approx():
+		return
+	var geometry := ImmediateMesh.new()
+	geometry.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var outline := PackedVector3Array()
+	for index in range(18):
+		var angle := TAU * index / 18.0
+		var edge := radius * randf_range(0.55, 1.12)
+		outline.append(Vector3(cos(angle) * edge, sin(angle) * edge, 0))
+	for index in range(outline.size()):
+		geometry.surface_add_vertex(Vector3.ZERO)
+		geometry.surface_add_vertex(outline[index])
+		geometry.surface_add_vertex(outline[(index + 1) % outline.size()])
+	geometry.surface_end()
+	var mark := MeshInstance3D.new()
+	mark.mesh = geometry
+	mark.material_override = paint_material(color)
+	mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mark)
+	mark.global_position = point + normal * 0.012
+	var up := Vector3.FORWARD if absf(normal.dot(Vector3.UP)) > 0.95 else Vector3.UP
+	mark.look_at(mark.global_position + normal, up)
+	if not persistent:
+		get_tree().create_timer(SPLAT_SECONDS).timeout.connect(mark.queue_free)
 
 func update_countdown() -> void:
 	crosshair.visible = countdown_left <= 0.0
