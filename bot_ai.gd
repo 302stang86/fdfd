@@ -157,6 +157,7 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 		think(bot, state)
 	if is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
 		fire(bot, state)
+	arena.set_bot_crouch(bot, state.reload_left > 0.0 or state.reposition_left > 0.0 and state.role == Role.GUARD)
 	follow_path(bot, state, delta)
 
 func think(bot: CharacterBody3D, state: BotState) -> void:
@@ -215,11 +216,11 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 		candidates.append(arena.player)
 	var best: CharacterBody3D
 	var best_distance := 31.0
-	var origin := bot.position + Vector3.UP * 1.22
+	var origin := bot.position + Vector3.UP * (0.78 if bot.get_meta("crouched") else 1.22)
 	for candidate in candidates:
 		if candidate == bot or int(candidate.get_meta("team", 0)) == state.team:
 			continue
-		var end: Vector3 = candidate.position + Vector3.UP * (0.72 if candidate == arena.player and arena.crouched else 1.12)
+		var end: Vector3 = candidate.position + Vector3.UP * (0.72 if (arena.crouched if candidate == arena.player else candidate.get_meta("crouched", false)) else 1.12)
 		var difference := end - origin
 		var distance := difference.length()
 		if distance >= best_distance:
@@ -298,15 +299,15 @@ func follow_path(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 		state.facing = face.normalized()
 	elif not travel.is_zero_approx():
 		state.facing = travel
-	var speed := 3.35 if state.role == Role.RUSHER else 2.7
+	var speed := 1.7 if bot.get_meta("crouched") else (3.35 if state.role == Role.RUSHER else 2.7)
 	bot.velocity.x = travel.x * speed
 	bot.velocity.z = travel.z * speed
 	bot.velocity.y -= 12.0 * delta
 	bot.move_and_slide()
 
 func fire(bot: CharacterBody3D, state: BotState) -> void:
-	var origin := bot.position + Vector3.UP * 1.22
-	var aim := state.target.position + Vector3.UP * (0.58 if state.target == arena.player and arena.crouched else 0.86)
+	var origin := bot.position + Vector3.UP * (0.72 if bot.get_meta("crouched") else 1.22)
+	var aim := state.target.position + Vector3.UP * (0.58 if (arena.crouched if state.target == arena.player else state.target.get_meta("crouched", false)) else 0.86)
 	var distance := origin.distance_to(aim)
 	var max_range := 29.0 if state.marker == 1 else 21.0
 	if distance > max_range or (state.marker == 2 and distance < 4.0):
