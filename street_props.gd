@@ -8,6 +8,11 @@ const MODEL_DIR := "res://assets/models/street/%s.glb"
 
 # name: [collision size, collides]
 const DIMS := {
+	"crate": [Vector3(1.7, 1.3, 1.7), true, ""], # the original plain cover block (drawn by arena.gd)
+	"car_wreck": [Vector3(1.7, 1.3, 3.3), true, "res://assets/models/car_wreck.glb"],
+	"rubble_heap": [Vector3(2.2, 0.9, 2.2), true, "res://assets/models/rubble_pile.glb"],
+	"wood_fence": [Vector3(0.3, 1.9, 6.0), true, "res://assets/models/wood_fence.glb"],
+	"chain_link_fence": [Vector3(0.3, 3.5, 6.0), true, "res://assets/models/chain_link_fence.glb"],
 	"brick_wall_low": [Vector3(0.4, 1.1, 4.0), true],
 	"concrete_wall_tall": [Vector3(0.4, 3.0, 4.0), true],
 	"jersey_barrier": [Vector3(0.6, 0.85, 2.5), true],
@@ -51,6 +56,21 @@ const LAYOUT := [
 	["transformer_box", -13.0, 21.0, 0], ["transformer_box", 11.5, 20.0, 0],
 ]
 
+# Names shown in the map editor, in palette order, with a short label for the grid button.
+const LABELS := {
+	"crate": ["Crate (cover block)", "■"], "brick_wall_low": ["Low brick wall", "BW"], "concrete_wall_tall": ["Tall concrete wall", "CW"],
+	"jersey_barrier": ["Jersey barrier", "JB"], "crowd_barricade": ["Crowd barricade", "CB"], "bollard": ["Bollard", "bo"],
+	"sedan": ["Sedan", "SD"], "pickup": ["Pickup truck", "PU"], "box_truck": ["Box truck", "BT"], "car_wreck": ["Car wreck", "CR"],
+	"dumpster": ["Dumpster", "DM"], "pallet_stack": ["Pallet stack", "PL"], "box_pile": ["Cardboard boxes", "BX"],
+	"traffic_cone": ["Traffic cone", "tc"], "barrel": ["Barrel", "BA"], "sawhorse": ["Sawhorse", "SH"], "hedge": ["Hedge", "HG"],
+	"planter": ["Planter", "PT"], "hydrant": ["Fire hydrant", "FH"], "trash_can": ["Trash can", "TC"], "bench": ["Bench", "BN"],
+	"transformer_box": ["Transformer box", "TF"], "rubble_heap": ["Rubble heap", "RB"], "wood_fence": ["Wood fence", "WF"],
+	"chain_link_fence": ["Chain-link fence", "CL"],
+}
+
+static func catalog() -> Array:
+	return LABELS.keys()
+
 var scenes := {}
 
 func build(arena: Node3D) -> void:
@@ -59,12 +79,14 @@ func build(arena: Node3D) -> void:
 
 func scene_for(name: String) -> PackedScene:
 	if not scenes.has(name):
-		scenes[name] = load(MODEL_DIR % name) as PackedScene
+		var info: Array = DIMS[name]
+		var path: String = info[2] if info.size() > 2 and info[2] != "" else MODEL_DIR % name
+		scenes[name] = load(path) as PackedScene
 	return scenes[name]
 
 func place(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
-	var scene := scene_for(name)
-	if scene == null:
+	var scene := scene_for(name) if name != "crate" else null
+	if scene == null and name != "crate":
 		return
 	var info: Array = DIMS[name]
 	var body := StaticBody3D.new()
@@ -78,5 +100,29 @@ func place(arena: Node3D, name: String, at: Vector2, yaw: float) -> void:
 		collider.shape = shape
 		collider.position.y = size.y * 0.5
 		body.add_child(collider)
-	body.add_child(scene.instantiate())
+	if scene != null:
+		body.add_child(scene.instantiate())
+	else: # crate: the original plain block
+		var block := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = info[0]
+		block.mesh = mesh
+		block.position.y = info[0].y * 0.5
+		var paint := StandardMaterial3D.new()
+		paint.albedo_color = Color("#a17443")
+		block.material_override = paint
+		body.add_child(block)
 	arena.add_child(body)
+
+# One editor cell: value is `true` (older saves: a crate) or "id" / "id:degrees".
+func place_cell(arena: Node3D, cell: Vector2, value) -> void:
+	var id := "crate"
+	var yaw := 0.0
+	if value is String:
+		var parts := (value as String).split(":")
+		id = parts[0]
+		if parts.size() > 1 and parts[1].is_valid_float():
+			yaw = deg_to_rad(parts[1].to_float())
+	if not DIMS.has(id):
+		id = "crate"
+	place(arena, id, cell, yaw)

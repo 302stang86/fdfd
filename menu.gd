@@ -1,5 +1,6 @@
 extends Control
 
+const STREET_PROPS := preload("res://street_props.gd")
 const ARENA := preload("res://arena.tscn")
 const CHARACTER_PREVIEW := preload("res://character_preview.gd")
 const MAP_FILE := "user://arenas.json"
@@ -312,9 +313,25 @@ func open_editor() -> void:
 	map_name.max_length = 40
 	form.add_child(map_name)
 	var instructions := Label.new()
-	instructions.text = "Click cells to toggle cover. Spawns and arena walls are added automatically."
+	instructions.text = "Pick an object, then click cells to place it. Spawns and arena walls are added automatically."
 	instructions.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	form.add_child(instructions)
+	var tools := HBoxContainer.new()
+	form.add_child(tools)
+	var palette := OptionButton.new()
+	for id in STREET_PROPS.catalog():
+		palette.add_item(STREET_PROPS.LABELS[id][0])
+		palette.set_item_metadata(palette.item_count - 1, id)
+	palette.tooltip_text = "Object placed when you click an empty cell"
+	tools.add_child(palette)
+	var turn := OptionButton.new()
+	for degrees in [0, 90, 180, 270]:
+		turn.add_item("Rotate %d°" % degrees)
+		turn.set_item_metadata(turn.item_count - 1, degrees)
+	tools.add_child(turn)
+	var hint := Label.new()
+	hint.text = " Click an empty cell to place, a filled cell to remove."
+	tools.add_child(hint)
 	grid = GridContainer.new()
 	grid.columns = 12
 	form.add_child(grid)
@@ -323,17 +340,21 @@ func open_editor() -> void:
 			var tile := Button.new()
 			tile.text = "·"
 			tile.custom_minimum_size = Vector2(29, 23)
-			tile.toggle_mode = true
 			var cell := "%d,%d" % [(x * 3) - 16, (z * 3) - 13]
 			if cell == "17,-4":
 				tile.disabled = true
 				tile.tooltip_text = "Bot spawn"
-			tile.toggled.connect(func(enabled: bool):
-				if enabled:
-					drafting[cell] = true
-				else:
+			tile.pressed.connect(func():
+				if drafting.has(cell):
 					drafting.erase(cell)
-				tile.text = "■" if enabled else "·"
+					tile.text = "·"
+					tile.tooltip_text = ""
+				else:
+					var id: String = palette.get_selected_metadata()
+					var degrees: int = turn.get_selected_metadata()
+					drafting[cell] = "%s:%d" % [id, degrees]
+					tile.text = STREET_PROPS.LABELS[id][1]
+					tile.tooltip_text = STREET_PROPS.LABELS[id][0]
 			)
 			grid.add_child(tile)
 	editor_status = Label.new()
@@ -344,7 +365,7 @@ func open_editor() -> void:
 	form.add_child(save)
 	map_name.text_submitted.connect(func(_value: String): save_map(dialog))
 	add_child(dialog)
-	dialog.popup_centered(Vector2i(460, 405))
+	dialog.popup_centered(Vector2i(560, 420))
 
 func save_map(dialog: AcceptDialog) -> void:
 	var title := map_name.text.strip_edges()
@@ -353,7 +374,7 @@ func save_map(dialog: AcceptDialog) -> void:
 		return
 	var layout := {}
 	for key in drafting:
-		layout[key] = true
+		layout[key] = drafting[key]
 	var updated := saved_maps.duplicate()
 	updated[title] = layout
 	var file := FileAccess.open(MAP_FILE, FileAccess.WRITE)

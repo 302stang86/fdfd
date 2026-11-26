@@ -133,7 +133,7 @@ func _ready() -> void:
 			var x := coordinates[0].to_int()
 			var z := coordinates[1].to_int()
 			if absi(x) <= 20 and absi(z) <= 16:
-				box(Vector3(x, 0.65, z), Vector3(1.7, 1.3, 1.7), Color("#a17443"))
+				STREET_PROPS.new().place_cell(self, Vector2(x, z), custom_layout[cell])
 
 	var scenery := ARENA_SCENERY.new()
 	add_child(scenery)
