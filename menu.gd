@@ -208,7 +208,7 @@ func refresh_maps() -> void:
 	for title in names:
 		maps.add_item(title + " (local)")
 		maps.set_item_metadata(maps.item_count - 1, title)
-	maps.select(0)
+	maps.select(2)
 
 func play_match() -> void:
 	arena = ARENA.instantiate()
