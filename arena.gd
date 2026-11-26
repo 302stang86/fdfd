@@ -379,6 +379,8 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 	var normal: Vector3 = hit["normal"]
 	var direct_bot := target is CharacterBody3D and bots.has(target)
 	var radius := 0.38 if ball.splash and not direct_bot else 0.15
+	if target == player:
+		radius = 0.025
 	var surface := player_splats if target == player else arena_splats
 	if direct_bot:
 		surface = target
