@@ -25,6 +25,7 @@ const ARENA_EDGE := ARENA_SIZE / 2.0
 const BOT_AI := preload("res://bot_ai.gd")
 const BOT_MODEL := preload("res://bot_model.gd")
 const ARENA_SCENERY := preload("res://arena_scenery.gd")
+const STREET_PROPS := preload("res://street_props.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -679,6 +680,7 @@ func build_urban_arena() -> void:
 			box(Vector3(x, 0.62, z), Vector3(3.8, 1.24, 1.5), Color("#777b78"))
 			box(Vector3(x, 1.18, z), Vector3(3.9, 0.13, 1.58), Color("#b08f56"), self, false)
 	build_field_day()
+	STREET_PROPS.new().build(self)
 
 func build_field_day() -> void:
 	for point in [Vector3(-4, 0.6, 13), Vector3(5, 0.6, 8), Vector3(-6, 0.6, -12), Vector3(7, 0.6, -14)]:
