@@ -1,0 +1,59 @@
+name: Deploy game to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GODOT_VERSION: 4.7.2
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - name: Install Godot and the Web release template
+        shell: bash
+        run: |
+          release="$GODOT_VERSION-stable"
+          download="https://downloads.godotengine.org/?version=$GODOT_VERSION&flavor=stable"
+          curl -fL --retry 3 "$download&platform=linux.x86_64&slug=linux.x86_64.zip" -o "$RUNNER_TEMP/godot.zip"
+          curl -fL --retry 3 "$download&platform=templates&slug=export_templates.tpz" -o "$RUNNER_TEMP/templates.tpz"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/Godot_v${release}_linux.x86_64" "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot"
+          templates="${XDG_DATA_HOME:-$HOME/.local/share}/godot/export_templates/$GODOT_VERSION.stable"
+          mkdir -p "$templates"
+          unzip -j "$RUNNER_TEMP/templates.tpz" 'templates/web_nothreads_release.zip' -d "$templates"
+      - name: Export the game
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/site"
+          "$RUNNER_TEMP/godot" --headless --path "$GITHUB_WORKSPACE" --editor --import
+          "$RUNNER_TEMP/godot" --headless --path "$GITHUB_WORKSPACE" --export-release Web "$RUNNER_TEMP/site/index.html"
+          test -s "$RUNNER_TEMP/site/index.html"
+          test -s "$RUNNER_TEMP/site/index.wasm"
+          test -s "$RUNNER_TEMP/site/index.pck"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
