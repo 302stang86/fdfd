@@ -2,6 +2,8 @@ extends Node3D
 
 const SPEED := 5.0
 const LOOK := 0.0025
+const COUNTDOWN_DURATION := 3.0
+const GO_DURATION := 0.55
 signal menu_requested
 
 const MAGAZINES := [16, 6, 4]
@@ -21,6 +23,10 @@ func magazine_size() -> int:
 var player: CharacterBody3D
 var camera: Camera3D
 var hud: Label
+var crosshair: Label
+var countdown_label: Label
+var countdown_left := COUNTDOWN_DURATION
+var go_left := 0.0
 var bots: Array[CharacterBody3D] = []
 var bot_velocities: Array[Vector3] = []
 var spawn := Vector3(0, 0.1, 19)
@@ -83,11 +89,20 @@ func _ready() -> void:
 	hud.add_theme_color_override("font_outline_color", Color("#172021"))
 	hud.add_theme_constant_override("outline_size", 6)
 	overlay.add_child(hud)
-	var crosshair := Label.new()
+	crosshair = Label.new()
 	crosshair.text = "+"
 	overlay.add_child(crosshair)
 	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	crosshair.position -= crosshair.size / 2.0
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	countdown_label = Label.new()
+	countdown_label.add_theme_font_size_override("font_size", 76)
+	countdown_label.add_theme_constant_override("outline_size", 13)
+	countdown_label.add_theme_color_override("font_outline_color", Color("#172021"))
+	center.add_child(countdown_label)
 	start_match()
 	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -154,6 +169,9 @@ func start_match() -> void:
 	bot_clock = 0
 	outcome = ""
 	fire_requested = false
+	countdown_left = COUNTDOWN_DURATION
+	go_left = 0.0
+	update_countdown()
 	update_hud()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -163,14 +181,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.keycode == KEY_ESCAPE:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			update_hud()
 		if event.keycode == KEY_ENTER and outcome != "":
 			start_match()
-		if event.keycode == KEY_R and reload <= 0 and ammo < magazine_size() and outcome == "":
+		if event.keycode == KEY_R and countdown_left <= 0.0 and reload <= 0 and ammo < magazine_size() and outcome == "":
 			reload = RELOAD_TIMES[marker_id]
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		elif outcome == "":
+		elif outcome == "" and countdown_left <= 0.0:
 			fire_requested = true
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		player.rotate_y(-event.relative.x * LOOK)
@@ -179,6 +198,17 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or outcome != "":
 		return
+	if countdown_left > 0.0:
+		countdown_left = maxf(0.0, countdown_left - delta)
+		if countdown_left == 0.0:
+			go_left = GO_DURATION
+		update_countdown()
+		update_hud()
+		return
+	if go_left > 0.0:
+		go_left = maxf(0.0, go_left - delta)
+		if go_left == 0.0:
+			update_countdown()
 	var direction := Vector3(
 		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		0,
@@ -240,7 +270,7 @@ func trace(from: Vector3, to: Vector3, excluded: CharacterBody3D) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(ray)
 
 func shoot() -> void:
-	if cooldown > 0 or reload > 0 or ammo == 0:
+	if countdown_left > 0.0 or cooldown > 0 or reload > 0 or ammo == 0:
 		return
 	ammo -= 1
 	cooldown = SHOT_INTERVALS[marker_id]
@@ -269,10 +299,18 @@ func shoot() -> void:
 		outcome = "Arena cleared! Press Enter to restart."
 	update_hud()
 
+func update_countdown() -> void:
+	crosshair.visible = countdown_left <= 0.0
+	countdown_label.visible = countdown_left > 0.0 or go_left > 0.0
+	countdown_label.text = str(ceili(countdown_left)) if countdown_left > 0.0 else "GO!"
+
 func update_hud() -> void:
+	var message := outcome
+	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
 	hud.text = "%s   |   Hits remaining: %d   |   Bots: %d\nWASD move   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
-		status, health, bots.size(), "Click the arena to capture the mouse." if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED else outcome
+		status, health, bots.size(), message
 	]
 
 func build_field_day() -> void:
