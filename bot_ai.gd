@@ -226,6 +226,8 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 		var distance := difference.length()
 		if distance >= best_distance:
 			continue
+		if candidate == arena.player and arena.player.get("hiding") and distance > 5.0:
+			continue # hiding inside a prop: only spotted from close range
 		if distance > 5.0 and candidate != state.target and state.facing.dot(difference.normalized()) < 0.28:
 			continue
 		var hit: Dictionary = arena.trace(origin, end, bot.get_rid())

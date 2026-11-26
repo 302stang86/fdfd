@@ -69,6 +69,7 @@ func build(arena: Node3D, arena_edge: float, map_seed: int, footprint: PackedVec
 	load_meshes()
 	make_materials()
 	collect_cover(arena)
+	collect_group_cover(arena)
 	var limit := arena_edge - 5.0
 	# dirt first so grass can keep clear of it
 	for kind in ["dirt", "rubble", "short_grass", "long_grass"]:
@@ -140,6 +141,12 @@ func collect_cover(arena: Node3D) -> void:
 					continue # the floor, the boundary walls and other slabs
 				var at: Vector3 = body.global_position
 				keep_out.append(Vector3(at.x, at.z, maxf(size.x, size.z) * 0.72))
+
+func collect_group_cover(arena: Node3D) -> void:
+	for node in arena.get_tree().get_nodes_in_group("keep_out"):
+		if node is Node3D and arena.is_ancestor_of(node):
+			var at: Vector3 = node.global_position
+			keep_out.append(Vector3(at.x, at.z, float(node.get_meta("keep_radius", 1.0))))
 
 func patch_position(limit: float, radius: float) -> Vector2:
 	for attempt in range(40):

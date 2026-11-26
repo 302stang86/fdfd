@@ -26,6 +26,7 @@ const BOT_AI := preload("res://bot_ai.gd")
 const BOT_MODEL := preload("res://bot_model.gd")
 const ARENA_SCENERY := preload("res://arena_scenery.gd")
 const STREET_PROPS := preload("res://street_props.gd")
+const PLAYER_BODY := preload("res://player_body.gd")
 const SPLAT_SECONDS := 4.0
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -198,6 +199,7 @@ func actor(point: Vector3, is_bot: bool = false, team: int = 0, skin: int = 0) -
 		sprite.setup(skin, team == 0)
 		body.set_meta("paint_sprite", sprite)
 	else:
+		body.set_script(PLAYER_BODY)
 		standing_capsule = CapsuleShape3D.new()
 		standing_capsule.radius = 0.28
 		standing_capsule.height = STANDING_HEIGHT
@@ -320,6 +322,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_M and not menu_requested.get_connections().is_empty():
 			menu_requested.emit()
 			return
+		if event.keycode == KEY_E and outcome == "" and countdown_left <= 0.0:
+			var door := nearest_door()
+			if door != null:
+				door.toggle_door()
 		if event.keycode == KEY_ESCAPE:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			update_hud()
@@ -361,11 +367,14 @@ func _physics_process(delta: float) -> void:
 	)
 	update_crouch(delta)
 	var movement := player.basis * direction.normalized() * (CROUCH_SPEED if crouched else SPEED)
-	player.velocity.x = movement.x
-	player.velocity.z = movement.z
-	player.velocity.y -= 12.0 * delta
-	if not crouched and player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
-		player.velocity.y = 3.3
+	if update_climbing(delta, -direction.z):
+		movement = Vector3.ZERO
+	else:
+		player.velocity.x = movement.x
+		player.velocity.z = movement.z
+		player.velocity.y -= 12.0 * delta
+		if not crouched and player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
+			player.velocity.y = 3.3
 	player.move_and_slide()
 	var aiming := Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and reload <= 0.0
 	var aim_fov: float = AIM_FOVS[marker_id] if aiming else 78.0
@@ -382,6 +391,44 @@ func _physics_process(delta: float) -> void:
 			ammo = magazine_size()
 	bot_ai.update(delta)
 	update_hud()
+
+# Ladder climbing: W near a ladder (facing it) starts a climb; W/S move up and down, Space lets go.
+# Returns true while the player is on a ladder (normal walking and gravity are skipped).
+func update_climbing(_delta: float, up_input: float) -> bool:
+	if not player.near_ladder and not player.climbing:
+		return false
+	if not player.climbing:
+		var facing: Vector3 = -player.global_transform.basis.z
+		var inward: Vector3 = -player.ladder_transform.basis.z
+		if up_input > 0.0 and not crouched and facing.dot(inward) > 0.3:
+			player.climbing = true
+		else:
+			return false
+	if Input.is_physical_key_pressed(KEY_SPACE):
+		player.climbing = false
+		player.velocity = Vector3(0, 2.0, 0) + player.global_transform.basis.z * 1.5
+		return false
+	player.velocity = Vector3(0, up_input * player.climb_speed, 0)
+	var top_y: float = player.ladder_transform.origin.y
+	if up_input > 0.0 and player.global_position.y >= top_y - 0.05:
+		player.global_position = player.ladder_transform * player.exit_offset
+		player.velocity = Vector3.ZERO
+		player.climbing = false
+	elif up_input < 0.0 and player.is_on_floor():
+		player.climbing = false
+	return true
+
+func nearest_door() -> Node:
+	var best: Node = null
+	var best_distance := 3.2
+	for node in get_tree().get_nodes_in_group("enterables"):
+		if not is_ancestor_of(node):
+			continue
+		var distance: float = node.reach(player.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = node
+	return best
 
 func update_crouch(delta: float) -> void:
 	if Input.is_physical_key_pressed(KEY_C):
@@ -648,7 +695,19 @@ func update_hud() -> void:
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
 	if not cheats.is_empty():
 		status += "   |   CHEATS ON"
-	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
+	if outcome.is_empty() and player != null:
+		var hint := ""
+		if player.climbing:
+			hint = "Climbing: W up, S down, Space let go"
+		elif player.near_ladder:
+			hint = "Face the ladder and hold W to climb"
+		elif nearest_door() != null:
+			hint = "E open / close door"
+		if player.hiding:
+			hint = ("HIDDEN   " + hint).strip_edges()
+		if not hint.is_empty():
+			message = hint if message.is_empty() else message + "   " + hint
+	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   R reload   M menu\n%s" % [
 		status, remaining_opponents(), message
 	]
 

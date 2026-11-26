@@ -320,7 +320,7 @@ func open_editor() -> void:
 	form.add_child(tools)
 	var palette := OptionButton.new()
 	for id in STREET_PROPS.catalog():
-		palette.add_item(STREET_PROPS.LABELS[id][0])
+		palette.add_item(STREET_PROPS.label_of(id)[0])
 		palette.set_item_metadata(palette.item_count - 1, id)
 	palette.tooltip_text = "Object placed when you click an empty cell"
 	tools.add_child(palette)
@@ -353,8 +353,8 @@ func open_editor() -> void:
 					var id: String = palette.get_selected_metadata()
 					var degrees: int = turn.get_selected_metadata()
 					drafting[cell] = "%s:%d" % [id, degrees]
-					tile.text = STREET_PROPS.LABELS[id][1]
-					tile.tooltip_text = STREET_PROPS.LABELS[id][0]
+					tile.text = STREET_PROPS.label_of(id)[1]
+					tile.tooltip_text = STREET_PROPS.label_of(id)[0]
 			)
 			grid.add_child(tile)
 	editor_status = Label.new()
