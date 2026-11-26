@@ -38,6 +38,29 @@ func generate_border(collision_host: Node3D) -> void:
 		var finish := world_point(LOOP[(index + 1) % LOOP.size()])
 		build_segment(start, finish, index, colliders)
 
+func draw_footprint() -> void:
+	var polygon := PackedVector2Array()
+	for vertex in LOOP:
+		var point := world_point(vertex)
+		polygon.append(Vector2(point.x, point.z))
+	var triangles := Geometry2D.triangulate_polygon(polygon)
+	if triangles.is_empty():
+		return
+	var surface := ImmediateMesh.new()
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color("#676e70")
+	material.roughness = 0.95
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	surface.surface_begin(Mesh.PRIMITIVE_TRIANGLES, material)
+	for index in triangles:
+		surface.surface_set_normal(Vector3.UP)
+		surface.surface_add_vertex(Vector3(polygon[index].x, 0.002, polygon[index].y))
+	surface.surface_end()
+	var area := MeshInstance3D.new()
+	area.mesh = surface
+	area.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(area)
+
 func world_point(point: Vector2i) -> Vector3:
 	var centered := (Vector2(point) - GRID_CENTER) * grid_scale
 	return Vector3(centered.x, 0, centered.y)
@@ -49,9 +72,11 @@ func build_segment(start: Vector3, finish: Vector3, index: int, colliders: Stati
 		return
 	var midpoint := (start + finish) * 0.5
 	var yaw := atan2(edge.x, edge.z)
+	var type := barrier_type(length, index)
 	var collider := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.2, wall_height, length + 0.24)
+	var thickness := 1.55 if type == Barrier.BUILDING else 0.22
+	shape.size = Vector3(thickness, wall_height, length + thickness)
 	collider.shape = shape
 	collider.position = midpoint + Vector3.UP * wall_height * 0.5
 	collider.rotation.y = yaw
@@ -61,12 +86,15 @@ func build_segment(start: Vector3, finish: Vector3, index: int, colliders: Stati
 	add_child(segment)
 	segment.position = midpoint
 	segment.rotation.y = yaw
-	var type := barrier_type(length, index)
 	var prefab := select_prefab(type, index)
 	if prefab != null:
 		segment.add_child(prefab.instantiate())
 	else:
 		build_visual(segment, type, length)
+		if type == Barrier.RUBBLE or type == Barrier.DESTROYED_CAR:
+			fence_wire(segment, length)
+		elif type == Barrier.WOOD_FENCE:
+			fence_wire(segment, length, 1.62)
 
 func barrier_type(length: float, index: int) -> int:
 	if length <= grid_scale * 1.1:
@@ -119,12 +147,12 @@ func build_visual(segment: Node3D, type: int, length: float) -> void:
 				var chunk := block(segment, Vector3(((index % 3) - 1) * 0.27, size * 0.38, z), Vector3(size, size * 0.86, size * 1.34), Color("#777572").lightened((index % 3) * 0.07))
 				chunk.rotation = Vector3(index * 0.24, index * 1.13, index * 0.38)
 
-func fence_wire(segment: Node3D, length: float) -> void:
+func fence_wire(segment: Node3D, length: float, bottom: float = 0.08) -> void:
 	var metal := Color("#6f858c")
-	for y in [0.08, 2.13]:
+	for y in [bottom, wall_height - 0.045]:
 		block(segment, Vector3(0, y, 0), Vector3(0.1, 0.095, length), metal)
 	for fraction in [-0.48, 0.0, 0.48]:
-		block(segment, Vector3(0, 1.1, length * fraction), Vector3(0.13, 2.2, 0.13), metal)
+		block(segment, Vector3(0, wall_height * 0.5, length * fraction), Vector3(0.13, wall_height, 0.13), metal)
 	var wire := ImmediateMesh.new()
 	var material := StandardMaterial3D.new()
 	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -132,10 +160,10 @@ func fence_wire(segment: Node3D, length: float) -> void:
 	wire.surface_begin(Mesh.PRIMITIVE_LINES, material)
 	var limit := length * 0.5
 	for slope in [-1, 1]:
-		for index in range(-9, ceili(length / 0.25) + 9):
+		for index in range(-ceili(wall_height / 0.25), ceili((length + wall_height) / 0.25) + 1):
 			var z := -limit + index * 0.25
-			var lower := maxf(0.1, -limit - z if slope == 1 else z - limit)
-			var upper := minf(2.1, limit - z if slope == 1 else z + limit)
+			var lower := maxf(bottom + 0.04, -limit - z if slope == 1 else z - limit)
+			var upper := minf(wall_height - 0.06, limit - z if slope == 1 else z + limit)
 			if upper > lower:
 				wire.surface_add_vertex(Vector3(0, lower, z + lower * slope))
 				wire.surface_add_vertex(Vector3(0, upper, z + upper * slope))
