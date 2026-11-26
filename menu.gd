@@ -12,6 +12,8 @@ var home: VBoxContainer
 var outfits: OptionButton
 var markers: OptionButton
 var maps: OptionButton
+var mode_picker: OptionButton
+var difficulty_picker: OptionButton
 var description: Label
 var preview: ColorRect
 var saved_maps: Dictionary = {}
@@ -76,10 +78,15 @@ func _ready() -> void:
 	markers.item_selected.connect(func(index: int): description.text = DESCRIPTIONS[index])
 	maps = picker("Map", [])
 	refresh_maps()
+	var rules := HBoxContainer.new()
+	rules.add_theme_constant_override("separation", 12)
+	home.add_child(rules)
+	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3"], 0)
+	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], 1)
 	add_button("Play match", play_match)
 	add_button("Create a map", open_editor)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse. Use WASD to move, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag all five bots to win. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
+		"Click the arena to capture the mouse. Use WASD to move, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag every opposing bot to win. Teammates wear teal in 3v3. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
@@ -99,6 +106,20 @@ func picker(label: String, values: Array) -> OptionButton:
 	for value in values:
 		options.add_item(value)
 	home.add_child(options)
+	return options
+
+func rules_picker(row: HBoxContainer, heading: String, items: Array, selected: int) -> OptionButton:
+	var column := VBoxContainer.new()
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(column)
+	var label := Label.new()
+	label.text = heading
+	column.add_child(label)
+	var options := OptionButton.new()
+	for item in items:
+		options.add_item(item)
+	options.select(selected)
+	column.add_child(options)
 	return options
 
 func apply_volume(value: float) -> void:
@@ -134,6 +155,8 @@ func play_match() -> void:
 	arena.marker_id = markers.selected
 	arena.outfit_color = Color(COLORS[outfits.selected])
 	arena.map_id = maps.selected
+	arena.team_match = mode_picker.selected == 1
+	arena.difficulty = difficulty_picker.selected
 	if maps.selected >= 2:
 		arena.custom_layout = saved_maps[maps.get_selected_metadata()]
 	arena.menu_requested.connect(return_home)
