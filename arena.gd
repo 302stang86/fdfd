@@ -92,10 +92,11 @@ func _ready() -> void:
 	sun.shadow_enabled = true
 	add_child(sun)
 
-	box(Vector3(0, -0.25, 0), Vector3(ARENA_SIZE, 0.5, ARENA_SIZE), Color("#55595d") if map_id == URBAN_MAP else Color("#485842"))
+	box(Vector3(0, -0.25, 0), Vector3(ARENA_SIZE, 0.5, ARENA_SIZE), Color("#30363a") if map_id == URBAN_MAP else Color("#485842"))
 	for side in [-1, 1]:
-		box(Vector3(side * ARENA_EDGE, 1.5, 0), Vector3(0.5, 3, ARENA_SIZE), Color("#323e43"))
-		box(Vector3(0, 1.5, side * ARENA_EDGE), Vector3(ARENA_SIZE, 3, 0.5), Color("#323e43"))
+		if map_id != URBAN_MAP:
+			box(Vector3(side * ARENA_EDGE, 1.5, 0), Vector3(0.5, 3, ARENA_SIZE), Color("#323e43"))
+			box(Vector3(0, 1.5, side * ARENA_EDGE), Vector3(ARENA_SIZE, 3, 0.5), Color("#323e43"))
 		if map_id != 0:
 			continue
 		for z in [-16, -6, 5, 14]:
@@ -630,6 +631,7 @@ func build_urban_arena() -> void:
 	border.grid_scale = 6.0
 	add_child(border)
 	border.generate_border(self)
+	border.draw_footprint()
 	box(Vector3(0, 0.005, 2), Vector3(16, 0.01, 54), Color("#3f454a"), self, false)
 	for x in [-8, 8]:
 		box(Vector3(x, 0.028, 2), Vector3(1.5, 0.055, 54), Color("#a29d90"), self, false)
