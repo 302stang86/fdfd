@@ -202,6 +202,7 @@ func refresh_maps() -> void:
 	maps.clear()
 	maps.add_item("Field Day Arena")
 	maps.add_item("Open Field")
+	maps.add_item("Urban Perimeter")
 	var names := saved_maps.keys()
 	names.sort()
 	for title in names:
@@ -216,7 +217,7 @@ func play_match() -> void:
 	arena.map_id = maps.selected
 	arena.team_match = mode_picker.selected == 1
 	arena.difficulty = difficulty_picker.selected
-	if maps.selected >= 2:
+	if maps.selected >= 3:
 		arena.custom_layout = saved_maps[maps.get_selected_metadata()]
 	arena.menu_requested.connect(return_home)
 	hide()
@@ -295,7 +296,7 @@ func save_map(dialog: AcceptDialog) -> void:
 	file.close()
 	saved_maps = updated
 	refresh_maps()
-	for index in range(2, maps.item_count):
+	for index in range(3, maps.item_count):
 		if maps.get_item_metadata(index) == title:
 			maps.select(index)
 			break
