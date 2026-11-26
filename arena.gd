@@ -6,7 +6,7 @@ const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
 const SPLAT_SECONDS := 4.0
-const PLAYER_PAINT := Color("#f5e438")
+const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
 const PROJECTILE_SPEEDS := [48.0, 66.0, 29.0]
 
@@ -38,6 +38,9 @@ func magazine_size() -> int:
 var player: CharacterBody3D
 var camera: Camera3D
 var hud: Label
+var hit_circles: Array[Panel] = []
+var empty_hit_style: StyleBoxFlat
+var filled_hit_style: StyleBoxFlat
 var crosshair: Label
 var countdown_label: Label
 var countdown_left := COUNTDOWN_DURATION
@@ -46,7 +49,6 @@ var bots: Array[CharacterBody3D] = []
 var bot_velocities: Array[Vector3] = []
 var paintballs: Array[Paintball] = []
 var arena_splats: Node3D
-var player_splats: Node3D
 var paintball_mesh: SphereMesh
 var spawn := Vector3(0, 0.1, 19)
 var ammo := 16
@@ -101,8 +103,6 @@ func _ready() -> void:
 
 	player = actor(spawn)
 	player.floor_snap_length = 0.35
-	player_splats = Node3D.new()
-	player.add_child(player_splats)
 	camera = Camera3D.new()
 	camera.position.y = 1.35
 	camera.current = true
@@ -118,6 +118,7 @@ func _ready() -> void:
 	hud.add_theme_color_override("font_outline_color", Color("#172021"))
 	hud.add_theme_constant_override("outline_size", 6)
 	overlay.add_child(hud)
+	create_hit_counter(overlay)
 	crosshair = Label.new()
 	crosshair.text = "+"
 	overlay.add_child(crosshair)
@@ -193,9 +194,8 @@ func clear_paintballs() -> void:
 
 func start_match() -> void:
 	clear_paintballs()
-	for container in [arena_splats, player_splats]:
-		for mark in container.get_children():
-			mark.queue_free()
+	for mark in arena_splats.get_children():
+		mark.queue_free()
 	for bot in bots:
 		bot.queue_free()
 	bots.clear()
@@ -213,6 +213,7 @@ func start_match() -> void:
 	player.velocity = Vector3.ZERO
 	camera.rotation.x = 0
 	health = MAX_HEALTH
+	update_hit_counter()
 	ammo = magazine_size()
 	reload = 0
 	cooldown = 0
@@ -378,17 +379,15 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 	var position_hit: Vector3 = hit["position"]
 	var normal: Vector3 = hit["normal"]
 	var direct_bot := target is CharacterBody3D and bots.has(target)
-	var radius := 0.38 if ball.splash and not direct_bot else 0.15
-	if target == player:
-		radius = 0.025
-	var surface := player_splats if target == player else arena_splats
-	if direct_bot:
-		surface = target
-	add_splat(position_hit, normal, ball.color, radius, surface, direct_bot)
+	if target != player:
+		var radius := 0.38 if ball.splash and not direct_bot else 0.15
+		var surface: Node3D = target if direct_bot else arena_splats
+		add_splat(position_hit, normal, ball.color, radius, surface, direct_bot)
 	if direct_bot and ball.player_shot:
 		damage_bot(target)
 	elif target == player and not ball.player_shot:
 		health -= 1
+		update_hit_counter()
 		if health <= 0:
 			outcome = "Tagged out! Press Enter to restart."
 
@@ -452,13 +451,47 @@ func update_countdown() -> void:
 	countdown_label.visible = countdown_left > 0.0 or go_left > 0.0
 	countdown_label.text = str(ceili(countdown_left)) if countdown_left > 0.0 else "GO!"
 
+func create_hit_counter(overlay: CanvasLayer) -> void:
+	var circle_size := 22
+	var separation := 8
+	var width := MAX_HEALTH * circle_size + (MAX_HEALTH - 1) * separation
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", separation)
+	overlay.add_child(row)
+	row.anchor_left = 0.5
+	row.anchor_right = 0.5
+	row.offset_left = -width / 2.0
+	row.offset_right = width / 2.0
+	row.offset_top = 18
+	row.offset_bottom = 18 + circle_size
+	empty_hit_style = StyleBoxFlat.new()
+	empty_hit_style.bg_color = Color("#263147")
+	empty_hit_style.border_color = Color("#e8dbff")
+	empty_hit_style.set_border_width_all(2)
+	empty_hit_style.set_corner_radius_all(ceili(circle_size / 2.0))
+	filled_hit_style = empty_hit_style.duplicate()
+	filled_hit_style.bg_color = Color("#a34df5")
+	for index in range(MAX_HEALTH):
+		var circle := Panel.new()
+		circle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		circle.custom_minimum_size = Vector2(circle_size, circle_size)
+		row.add_child(circle)
+		hit_circles.append(circle)
+
+func update_hit_counter() -> void:
+	var hits := MAX_HEALTH - health
+	for index in range(hit_circles.size()):
+		var style := filled_hit_style if index < hits else empty_hit_style
+		hit_circles[index].add_theme_stylebox_override("panel", style)
+
 func update_hud() -> void:
 	var message := outcome
 	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
-	hud.text = "%s   |   Hits remaining: %d   |   Bots: %d\nWASD move   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
-		status, health, bots.size(), message
+	hud.text = "%s   |   Bots: %d\nWASD move   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
+		status, bots.size(), message
 	]
 
 func build_field_day() -> void:
