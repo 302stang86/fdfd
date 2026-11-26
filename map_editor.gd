@@ -88,6 +88,18 @@ var style_pick: OptionButton
 var closed_check: CheckBox
 var confirm: ConfirmationDialog
 var pending_confirm := Callable()
+# mini window: shows the 3D view while the main view is top-down, and the top-down map while flying
+var mini_panel: PanelContainer
+var mini_container: SubViewportContainer
+var mini_viewport: SubViewport
+var mini_camera: Camera3D
+var mini_label: Label
+var mini_check: CheckBox
+var mini_yaw := 0.6
+var mini_elevation := 0.75
+var mini_distance := 42.0
+var mini_zoom := 80.0
+var cam_marker: Node3D
 
 func _ready() -> void:
 	build_world()
@@ -166,7 +178,22 @@ func build_world() -> void:
 	add_child(overlay_node)
 	camera = Camera3D.new()
 	camera.far = 500.0
+	camera.cull_mask = 1 # layer 2 holds the camera marker, which only the mini window shows
 	add_child(camera)
+	cam_marker = Node3D.new()
+	var arrow := MeshInstance3D.new()
+	var prism := PrismMesh.new()
+	prism.size = Vector3(3.0, 5.0, 1.0)
+	arrow.mesh = prism
+	arrow.rotation.x = -PI / 2.0 # the tip points along -Z, the way the camera looks
+	arrow.layers = 2
+	var arrow_paint := StandardMaterial3D.new()
+	arrow_paint.albedo_color = Color("#ffb020")
+	arrow_paint.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	arrow.material_override = arrow_paint
+	cam_marker.add_child(arrow)
+	cam_marker.visible = false
+	add_child(cam_marker)
 
 func line_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -226,6 +253,11 @@ func build_ui() -> void:
 	stack_check.tooltip_text = "Placed and dragged props rest on whatever is below them"
 	stack_check.toggled.connect(func(on: bool): stack_on = on)
 	bar.add_child(stack_check)
+	mini_check = CheckBox.new()
+	mini_check.text = "Mini view"
+	mini_check.button_pressed = true
+	mini_check.tooltip_text = "Show the small picture-in-picture window (3D preview or top-down map)"
+	bar.add_child(mini_check)
 	view_button = add_button(bar, "Top-down", toggle_view, "Switch between top-down and free-fly 3D (Tab)")
 	add_button(bar, "Test play", func(): test_requested.emit(current_layout()))
 	add_button(bar, "Exit", func(): if dirty: ask("Leave the editor? Unsaved changes will be lost.", func(): closed.emit()) else: closed.emit())
@@ -339,6 +371,8 @@ func build_ui() -> void:
 	info = Label.new()
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	props_box.add_child(info)
+	right.offset_bottom = -(30 + 236)
+	build_mini(root)
 	# status line
 	var bottom := PanelContainer.new()
 	root.add_child(bottom)
@@ -351,6 +385,82 @@ func build_ui() -> void:
 			pending_confirm.call())
 	add_child(confirm)
 	selection_changed()
+
+func build_mini(root: Control) -> void:
+	mini_panel = PanelContainer.new()
+	root.add_child(mini_panel)
+	mini_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	mini_panel.offset_left = -230
+	mini_panel.offset_top = -234
+	mini_panel.offset_bottom = -30
+	var column := VBoxContainer.new()
+	mini_panel.add_child(column)
+	mini_label = Label.new()
+	column.add_child(mini_label)
+	mini_container = SubViewportContainer.new()
+	mini_container.stretch = true
+	mini_container.custom_minimum_size = Vector2(218, 164)
+	mini_container.gui_input.connect(mini_input)
+	column.add_child(mini_container)
+	mini_viewport = SubViewport.new()
+	mini_viewport.world_3d = get_viewport().world_3d # the same map, seen by a second camera
+	mini_viewport.size = Vector2i(218, 164)
+	mini_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	mini_container.add_child(mini_viewport)
+	mini_camera = Camera3D.new()
+	mini_camera.far = 500.0
+	mini_camera.cull_mask = 3
+	mini_viewport.add_child(mini_camera)
+
+func mini_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			var factor := 0.9 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.1
+			if top_down:
+				mini_distance = clampf(mini_distance * factor, 12.0, 120.0)
+			else:
+				mini_zoom = clampf(mini_zoom * factor, 20.0, 130.0)
+		elif event.button_index == MOUSE_BUTTON_LEFT and not top_down:
+			mini_jump(event.position)
+	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		if top_down: # drag to orbit the 3D preview
+			mini_yaw -= event.relative.x * 0.012
+			mini_elevation = clampf(mini_elevation + event.relative.y * 0.01, 0.15, 1.5)
+		else: # drag across the map to move the flying camera
+			mini_jump(event.position)
+
+# Click or drag on the mini map to move the free-fly camera over that spot.
+func mini_jump(local: Vector2) -> void:
+	var size := mini_container.size
+	var spot := Vector2(camera.position.x, camera.position.z) + (local - size / 2.0) / size.y * mini_zoom
+	camera.position.x = clampf(spot.x, -HALF, HALF)
+	camera.position.z = clampf(spot.y, -HALF, HALF)
+
+func update_mini() -> void:
+	if mini_camera == null:
+		return
+	mini_panel.visible = mini_check.button_pressed
+	if not mini_panel.visible:
+		cam_marker.visible = false
+		return
+	if top_down:
+		mini_label.text = "3D preview (drag to orbit)"
+		var target := Vector3(focus.x, 0.0, focus.y)
+		var offset := Vector3(sin(mini_yaw) * cos(mini_elevation), sin(mini_elevation), cos(mini_yaw) * cos(mini_elevation)) * mini_distance
+		mini_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+		mini_camera.fov = 60.0
+		mini_camera.position = target + offset
+		mini_camera.look_at(target)
+		cam_marker.visible = false
+	else:
+		mini_label.text = "Top-down map (click to move)"
+		mini_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+		mini_camera.size = mini_zoom
+		mini_camera.position = Vector3(camera.position.x, 120.0, camera.position.z)
+		mini_camera.rotation = Vector3(-PI / 2.0, 0, 0)
+		cam_marker.visible = true
+		cam_marker.position = Vector3(camera.position.x, 60.0, camera.position.z)
+		cam_marker.rotation = Vector3(0, fly_yaw, 0)
 
 func add_button(parent: Control, text: String, action: Callable, tip := "") -> Button:
 	var button := Button.new()
@@ -466,6 +576,7 @@ func _process(delta: float) -> void:
 	update_cursor()
 	update_ghost()
 	draw_overlay()
+	update_mini()
 
 func ground_point(screen: Vector2, level: float) -> Variant:
 	var origin := camera.project_ray_origin(screen)
