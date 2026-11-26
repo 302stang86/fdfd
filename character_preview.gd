@@ -47,7 +47,7 @@ func build(skin: int) -> void:
 			block(Vector3(0.10, legs + torso * 0.73, 0.145), Vector3(0.055, 0.075, 0.015), Color("#efd27d"))
 		5:
 			for side in [-1, 1]:
-				var ear_x := side * 0.083
+				var ear_x: float = side * 0.083
 				var ear_y := head_y + face_edge + 0.15
 				block(Vector3(ear_x, ear_y, 0), Vector3(0.065, 0.30, 0.075), base_color)
 				block(Vector3(ear_x, ear_y - 0.012, 0.041), Vector3(0.032, 0.23, 0.012), Color("#ff758f"))
