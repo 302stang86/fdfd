@@ -1,6 +1,11 @@
 extends Node3D
 
 const SPEED := 5.0
+const CROUCH_SPEED := 2.65
+const STANDING_HEIGHT := 1.5
+const CROUCH_HEIGHT := 1.0
+const STANDING_EYE := 1.35
+const CROUCH_EYE := 0.85
 const LOOK := 0.0025
 const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
@@ -40,6 +45,10 @@ func magazine_size() -> int:
 	return MAGAZINES[marker_id]
 
 var player: CharacterBody3D
+var player_collider: CollisionShape3D
+var standing_capsule: CapsuleShape3D
+var crouching_capsule: CapsuleShape3D
+var crouched := false
 var camera: Camera3D
 var hud: Label
 var loss_popup: ColorRect
@@ -118,7 +127,7 @@ func _ready() -> void:
 	player = actor(spawn)
 	player.floor_snap_length = 0.35
 	camera = Camera3D.new()
-	camera.position.y = 1.35
+	camera.position.y = STANDING_EYE
 	camera.current = true
 	player.add_child(camera)
 	box(Vector3(0.32, -0.24, -0.54), Vector3(0.16, 0.15, 0.38), outfit_color, camera, false)
@@ -161,13 +170,15 @@ func actor(point: Vector3, is_bot: bool = false, team: int = 0) -> CharacterBody
 		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42), Color("#fed497"))
 		body.set_meta("health", MAX_HEALTH)
 	else:
-		var collider := CollisionShape3D.new()
-		var capsule := CapsuleShape3D.new()
-		capsule.radius = 0.28
-		capsule.height = 1.5
-		collider.shape = capsule
-		collider.position.y = 0.75
-		body.add_child(collider)
+		standing_capsule = CapsuleShape3D.new()
+		standing_capsule.radius = 0.28
+		standing_capsule.height = STANDING_HEIGHT
+		crouching_capsule = standing_capsule.duplicate()
+		crouching_capsule.height = CROUCH_HEIGHT
+		player_collider = CollisionShape3D.new()
+		player_collider.shape = standing_capsule
+		player_collider.position.y = STANDING_HEIGHT / 2.0
+		body.add_child(player_collider)
 	add_child(body)
 	body.position = point
 	body.floor_snap_length = 0.35
@@ -231,6 +242,8 @@ func start_match() -> void:
 		bots.append(bot)
 		bot_ai.register(bot, team, index)
 	player.position = spawn
+	set_crouched(false)
+	camera.position.y = STANDING_EYE
 	player.rotation.y = 0
 	player.velocity = Vector3.ZERO
 	camera.rotation.x = 0
@@ -293,11 +306,12 @@ func _physics_process(delta: float) -> void:
 		0,
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	)
-	var movement := player.basis * direction.normalized() * SPEED
+	update_crouch(delta)
+	var movement := player.basis * direction.normalized() * (CROUCH_SPEED if crouched else SPEED)
 	player.velocity.x = movement.x
 	player.velocity.z = movement.z
 	player.velocity.y -= 12.0 * delta
-	if player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
+	if not crouched and player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
 		player.velocity.y = 3.3
 	player.move_and_slide()
 	var aim_fov: float = AIM_FOVS[marker_id] if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) else 78.0
@@ -312,6 +326,29 @@ func _physics_process(delta: float) -> void:
 			ammo = magazine_size()
 	bot_ai.update(delta)
 	update_hud()
+
+func update_crouch(delta: float) -> void:
+	if Input.is_physical_key_pressed(KEY_C):
+		set_crouched(true)
+	elif crouched and has_standing_room():
+		set_crouched(false)
+	var eye_height := CROUCH_EYE if crouched else STANDING_EYE
+	camera.position.y = move_toward(camera.position.y, eye_height, 5.5 * delta)
+
+func set_crouched(enabled: bool) -> void:
+	if crouched == enabled:
+		return
+	crouched = enabled
+	player_collider.shape = crouching_capsule if crouched else standing_capsule
+	player_collider.position.y = (CROUCH_HEIGHT if crouched else STANDING_HEIGHT) / 2.0
+
+func has_standing_room() -> bool:
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = standing_capsule
+	query.transform.origin = player.global_position + Vector3.UP * (STANDING_HEIGHT / 2.0 + 0.02)
+	query.exclude = [player.get_rid()]
+	query.collision_mask = player.collision_mask
+	return get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
 
 func trace(from: Vector3, to: Vector3, excluded: RID) -> Dictionary:
 	var ray := PhysicsRayQueryParameters3D.create(from, to)
@@ -549,7 +586,7 @@ func update_hud() -> void:
 	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
-	hud.text = "%s   |   Opponents: %d\nWASD move   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
+	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   LMB tag   RMB aim   R reload   M menu\n%s" % [
 		status, remaining_opponents(), message
 	]
 
