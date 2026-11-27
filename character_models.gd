@@ -82,16 +82,20 @@ static func shape_profile(source: Mesh, part_name: String, height_offset: float,
 		for index in range(vertices.size()):
 			var vertex := vertices[index]
 			var height := vertex.y + height_offset
-			var multiplier := profile_scale(part_name, height)
+			var multiplier := profile_scale(part_name, height, skin, vertex.x)
 			var slope := 0.0
 			if index < normals.size():
-				var gradient := (profile_scale(part_name, height + 0.002) - profile_scale(part_name, height - 0.002)) / 0.004
-				slope = (profile_center(part_name, height + 0.002) - profile_center(part_name, height - 0.002)) / 0.004
+				var gradient := (profile_scale(part_name, height + 0.002, skin, vertex.x) - profile_scale(part_name, height - 0.002, skin, vertex.x)) / 0.004
+				slope = (profile_center(part_name, height + 0.002, skin, vertex.x) - profile_center(part_name, height - 0.002, skin, vertex.x)) / 0.004
 				var normal := normals[index]
 				normal.z /= multiplier
 				normal.y -= normal.z * (vertex.z * gradient + slope)
+				if skin == 5 and part_name == "Torso":
+					var depth_gradient := (profile_scale(part_name, height, skin, vertex.x + 0.002) - profile_scale(part_name, height, skin, vertex.x - 0.002)) / 0.004
+					var center_gradient := (profile_center(part_name, height, skin, vertex.x + 0.002) - profile_center(part_name, height, skin, vertex.x - 0.002)) / 0.004
+					normal.x -= normal.z * (vertex.z * depth_gradient + center_gradient)
 				normals[index] = normal.normalized()
-			vertex.z = vertex.z * multiplier + profile_center(part_name, height)
+			vertex.z = vertex.z * multiplier + profile_center(part_name, height, skin, vertex.x)
 			vertices[index] = vertex
 			if index < normals.size():
 				var key := vertex.snapped(Vector3.ONE * 0.0001)
@@ -120,24 +124,36 @@ static func shape_profile(source: Mesh, part_name: String, height_offset: float,
 				256.0 + rear_col * 512.0, 493.0 if lower else 13.0,
 				484.0 if lower else 451.0, rear_width[skin]))
 			wrapped.set_shader_parameter("front_center", front_center[skin])
+			wrapped.set_shader_parameter("bunny_head", skin == 5 and part_name == "Torso")
 			result.surface_set_material(surface, wrapped)
 		else:
 			result.surface_set_material(surface, source.surface_get_material(surface))
 	return result
 
-static func profile_scale(part_name: String, height: float) -> float:
+static func profile_scale(part_name: String, height: float, skin: int, x: float) -> float:
 	if part_name == "Torso":
 		var body := smoothstep(0.52, 0.83, height) * (1.0 - smoothstep(1.15, 1.31, height))
-		return 1.03 + 0.72 * body
+		var scale := 1.03 + 0.72 * body
+		if skin == 5:
+			# The lower hair rings include part of the shoulder silhouette.
+			# Taper their depth while retaining volume around the skull.
+			var lower_hair := smoothstep(1.155, 1.177, height) * (1.0 - smoothstep(1.23, 1.30, height))
+			lower_hair *= 1.0 - smoothstep(0.11, 0.14, absf(x))
+			scale = lerpf(scale, 0.61, lower_hair)
+		return scale
 	if part_name.begins_with("Arm"):
 		return lerpf(1.62, 1.2, smoothstep(0.78, 1.08, height))
 	return lerpf(1.04, 1.27, smoothstep(0.08, 0.28, height))
 
-static func profile_center(part_name: String, height: float) -> float:
+static func profile_center(part_name: String, height: float, skin: int, x: float) -> float:
 	if part_name == "Torso":
 		var chest := exp(-pow((height - 1.025) / 0.17, 2.0)) * 0.025
 		var pelvis := exp(-pow((height - 0.70) / 0.12, 2.0)) * 0.024
 		var face := exp(-pow((height - 1.32) / 0.055, 2.0)) * 0.012
+		if skin == 5:
+			var head := smoothstep(1.155, 1.19, height) * (1.0 - smoothstep(1.34, 1.40, height))
+			var nose := exp(-pow((height - 1.288) / 0.019, 2.0) - pow((x - 0.004) / 0.026, 2.0))
+			return lerpf(chest - pelvis + face, -0.005 + nose * 0.022, head)
 		return chest - pelvis + face
 	if part_name.begins_with("Leg"):
 		return -exp(-pow((height - 0.36) / 0.11, 2.0)) * 0.017
