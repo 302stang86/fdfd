@@ -120,7 +120,12 @@ var time_left := TIMED_SECONDS
 var team_hits := [0, 0]
 var touch: TOUCH_CONTROLS
 var result_message: Label
+const COYOTE_SECONDS := 0.12
+const JUMP_BUFFER_SECONDS := 0.12
+
 var jump_held := false
+var coyote_left := 0.0
+var jump_buffer_left := 0.0
 var difficulty := 1
 var paintballs: Array[Paintball] = []
 var arena_splats: Node3D
@@ -192,6 +197,7 @@ func _ready() -> void:
 
 	player = actor(spawn)
 	player.floor_snap_length = 0.35
+	player.floor_constant_speed = true
 	camera = Camera3D.new()
 	camera.position.y = STANDING_EYE
 	camera.current = true
@@ -396,6 +402,9 @@ func start_match() -> void:
 	var toward_center := -Vector2(spawn.x, spawn.z)
 	player.rotation.y = atan2(-toward_center.x, -toward_center.y)
 	player.velocity = Vector3.ZERO
+	jump_held = Input.is_physical_key_pressed(KEY_SPACE)
+	coyote_left = 0.0
+	jump_buffer_left = 0.0
 	camera.rotation.x = 0
 	marker_view.reset_motion()
 	health = MAX_HEALTH
@@ -472,6 +481,7 @@ func _physics_process(delta: float) -> void:
 		0,
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	)
+	var was_jump_held := jump_held
 	jump_held = Input.is_physical_key_pressed(KEY_SPACE)
 	if touch != null:
 		var move: Vector2 = touch.sticks["move"]
@@ -486,16 +496,29 @@ func _physics_process(delta: float) -> void:
 			var door := nearest_door()
 			if door != null:
 				door.toggle_door()
+	var jump_pressed := jump_held and not was_jump_held
+	if touch != null:
+		jump_pressed = touch.consume("JUMP") or jump_pressed
 	update_crouch(delta)
 	var movement := player.basis * direction.limit_length() * (CROUCH_SPEED if crouched else SPEED)
-	if update_climbing(delta, -direction.z):
+	if update_climbing(-direction.z, jump_pressed):
 		movement = Vector3.ZERO
+		coyote_left = 0.0
+		jump_buffer_left = 0.0
 	else:
 		player.velocity.x = movement.x
 		player.velocity.z = movement.z
 		player.velocity.y -= 12.0 * delta
-		if not crouched and player.is_on_floor() and jump_held:
-			player.velocity.y = 3.3
+		if crouched:
+			coyote_left = 0.0
+			jump_buffer_left = 0.0
+		else:
+			coyote_left = COYOTE_SECONDS if player.is_on_floor() else maxf(0.0, coyote_left - delta)
+			jump_buffer_left = JUMP_BUFFER_SECONDS if jump_pressed else maxf(0.0, jump_buffer_left - delta)
+			if coyote_left > 0.0 and jump_buffer_left > 0.0:
+				player.velocity.y = 3.3
+				coyote_left = 0.0
+				jump_buffer_left = 0.0
 	player.move_and_slide()
 	var aiming := (touch.held("AIM") if touch != null else Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)) and reload <= 0.0
 	var reload_progress := 1.0 - reload / float(RELOAD_TIMES[marker_id]) if reload > 0.0 else 0.0
@@ -513,7 +536,7 @@ func _physics_process(delta: float) -> void:
 
 # Ladder climbing: W near a ladder (facing it) starts a climb; W/S move up and down, Space lets go.
 # Returns true while the player is on a ladder (normal walking and gravity are skipped).
-func update_climbing(_delta: float, up_input: float) -> bool:
+func update_climbing(up_input: float, jump_pressed: bool) -> bool:
 	if not player.near_ladder and not player.climbing:
 		return false
 	if not player.climbing:
@@ -523,10 +546,10 @@ func update_climbing(_delta: float, up_input: float) -> bool:
 			player.climbing = true
 		else:
 			return false
-	if jump_held:
+	if jump_pressed:
 		player.climbing = false
 		player.velocity = Vector3(0, 2.0, 0) + player.global_transform.basis.z * 1.5
-		return false
+		return true
 	player.velocity = Vector3(0, up_input * player.climb_speed, 0)
 	var top_y: float = player.ladder_transform.origin.y
 	if up_input > 0.0 and player.global_position.y >= top_y - 0.05:
