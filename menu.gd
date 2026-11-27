@@ -17,7 +17,7 @@ const CHEAT_OPTIONS := {
 const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo / goth"]
 const COLORS := ["#63774b", "#34313d", "#db4f64", "#dcb05a", "#405a86", "#e9b5cb", "#9bb3ba", "#543b64"]
 const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launcher"]
-const DESCRIPTIONS := ["Rapid fire · slow reload · mild zoom", "Slow fire · fast reload · scope zoom", "Slow fire · moderate reload · area splash"]
+const DESCRIPTIONS := ["Rapid fire · slow reload", "Slow fire · fast reload", "Slow fire · moderate reload · area splash"]
 
 var home: VBoxContainer
 var outfits: OptionButton
@@ -125,7 +125,7 @@ func _ready() -> void:
 	add_button("Create a map", open_editor)
 	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, right-click to aim, and press R to reload. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, reloading, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
+		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, hold right-click to steady the marker, and press R to reload. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, reloading, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
@@ -183,7 +183,7 @@ func open_aim_settings() -> void:
 	row.add_theme_constant_override("separation", 10)
 	content.add_child(row)
 	var style := rules_picker(row, "Crosshair", CROSSHAIR.STYLES, aim_option("style", 0, CROSSHAIR.STYLES.size()))
-	var color := rules_picker(row, "Crosshair color", CROSSHAIR.COLOR_NAMES, aim_option("color", 1, CROSSHAIR.COLOR_NAMES.size()))
+	var color := rules_picker(row, "Crosshair color", CROSSHAIR.RETICLE_COLOR_NAMES, aim_option("color", 3, CROSSHAIR.RETICLE_COLOR_NAMES.size()))
 	var paint := rules_picker(row, "Paint color", CROSSHAIR.COLOR_NAMES, aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size()))
 	var size_label := Label.new()
 	content.add_child(size_label)
@@ -196,7 +196,7 @@ func open_aim_settings() -> void:
 
 	var refresh_preview := func():
 		reticle.style_index = style.selected
-		reticle.ink = CROSSHAIR.COLORS[color.selected]
+		reticle.ink = CROSSHAIR.RETICLE_COLORS[color.selected]
 		reticle.diameter = int(scale_slider.value)
 		reticle.queue_redraw()
 		size_label.text = "Crosshair size · %d" % reticle.diameter
@@ -212,7 +212,7 @@ func open_aim_settings() -> void:
 	scale_slider.value_changed.connect(save_preferences)
 	refresh_preview.call()
 	add_child(dialog)
-	dialog.popup_centered(Vector2i(410, 240))
+	dialog.popup_centered(Vector2i(460, 240))
 
 func aim_option(key: String, default_value: int, count: int) -> int:
 	var option := int(settings.get_value("aim", key, default_value))
@@ -223,7 +223,7 @@ func aim_size() -> int:
 
 func apply_aim_settings() -> void:
 	arena.crosshair_style = aim_option("style", 0, CROSSHAIR.STYLES.size())
-	arena.crosshair_color = CROSSHAIR.COLORS[aim_option("color", 1, CROSSHAIR.COLOR_NAMES.size())]
+	arena.crosshair_color = CROSSHAIR.RETICLE_COLORS[aim_option("color", 3, CROSSHAIR.RETICLE_COLOR_NAMES.size())]
 	arena.crosshair_size = aim_size()
 	arena.player_paint = CROSSHAIR.COLORS[aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size())]
 

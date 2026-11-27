@@ -62,7 +62,6 @@ signal menu_requested
 const MAGAZINES := [16, 6, 4]
 const RELOAD_TIMES := [2.0, 0.85, 1.5]
 const SHOT_INTERVALS := [0.11, 0.85, 1.15]
-const AIM_FOVS := [62.0, 28.0, 70.0]
 
 var marker_id := 0
 var map_id := 0
@@ -89,7 +88,7 @@ var empty_hit_style: StyleBoxFlat
 var filled_hit_style: StyleBoxFlat
 var crosshair: CROSSHAIR
 var crosshair_style := 0
-var crosshair_color := CROSSHAIR.COLORS[1]
+var crosshair_color := CROSSHAIR.RETICLE_COLORS[3]
 var crosshair_size := CROSSHAIR.DEFAULT_SIZE
 var player_paint := PLAYER_PAINT
 var countdown_label: Label
@@ -448,8 +447,6 @@ func _physics_process(delta: float) -> void:
 			player.velocity.y = 3.3
 	player.move_and_slide()
 	var aiming := (touch.held("AIM") if touch != null else Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)) and reload <= 0.0
-	var aim_fov: float = AIM_FOVS[marker_id] if aiming else 78.0
-	camera.fov = move_toward(camera.fov, aim_fov, 120.0 * delta)
 	var reload_progress := 1.0 - reload / float(RELOAD_TIMES[marker_id]) if reload > 0.0 else 0.0
 	marker_view.animate(delta, aiming, reload_progress, movement.length() > 0.1 and player.is_on_floor())
 	cooldown = maxf(cooldown - delta, 0)
@@ -537,6 +534,7 @@ func shoot() -> void:
 	cooldown = SHOT_INTERVALS[marker_id]
 	shot_audio.play()
 	marker_view.punch()
+	crosshair.fired()
 	var origin := camera.global_position
 	var aim_end := origin - camera.global_basis.z * 70
 	var hit := trace(origin, aim_end, player.get_rid())
