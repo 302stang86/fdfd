@@ -121,11 +121,11 @@ func _ready() -> void:
 	drawer = menu_panel(side, Color("#18163de8"))
 	var drawer_shell := VBoxContainer.new()
 	drawer.add_child(drawer_shell)
-	var sections := ["Operative", "Marker", "Paint & Aim", "Arena", "Match Rules", "Settings"]
-	var accents := [Color("#ff4fa3"), Color("#ff7a2f"), Color("#2fd8f5"), Color("#b6f23a"), Color("#ffd23f"), Color("#a798ff")]
+	var sections := ["Operative", "Marker", "Paint & Aim", "Arena", "Match Rules", "Multiplayer", "Settings"]
+	var accents := [Color("#ff4fa3"), Color("#ff7a2f"), Color("#2fd8f5"), Color("#b6f23a"), Color("#ffd23f"), Color("#54dbc4"), Color("#a798ff")]
 	for index in range(sections.size()):
 		var section: String = sections[index]
-		if index < 5:
+		if section != "Settings":
 			var tab := menu_button(navigation, section, show_drawer.bind(section))
 			tab.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			tab.add_theme_color_override("font_color", Color("#f5f7ff"))
@@ -172,6 +172,7 @@ func _ready() -> void:
 	select_rule(mode_picker, saved_option("mode", 0, 3))
 	select_rule(difficulty_picker, saved_option("difficulty", 1, 3))
 	select_rule(ruleset_picker, saved_option("ruleset", 0, 2))
+	drawer_views["Multiplayer"].add_child(preload("res://multiplayer_lobby.gd").new())
 	home = drawer_views["Settings"]
 	add_label("Master volume")
 	var volume := HSlider.new()
