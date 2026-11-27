@@ -287,6 +287,14 @@ func place_climbable(arena: Node3D, name: String, at: Vector2, yaw: float) -> No
 	zone.position = Vector3(0, -(top + 0.3) / 2.0 + 0.25, 0.2)
 	ladder.add_child(zone)
 	body.add_child(ladder)
+	var start := Marker3D.new()
+	start.name = "CLIMB_START_LADDER"
+	start.position = ladder.position + ladder.basis * Vector3(0, 0.05 - top, 0.65)
+	body.add_child(start)
+	var finish := Marker3D.new()
+	finish.name = "CLIMB_TOP_LADDER"
+	finish.position = ladder.position + ladder.basis * Vector3(0, 0.17, -0.82)
+	body.add_child(finish)
 	arena.add_child(body)
 	mark_keep_out(body, reach * 0.55 + 0.6)
 	return body
@@ -323,6 +331,11 @@ func place_enterable(arena: Node3D, name: String, at: Vector2, yaw: float) -> No
 	zone.add_child(zone_shape)
 	root.add_child(zone)
 	root.hide_area = zone
+	var hide := Marker3D.new()
+	hide.name = "HIDE_INTERIOR"
+	hide.position = zone.position
+	hide.position.y -= box.size.y * 0.5 - 0.12
+	root.add_child(hide)
 	arena.add_child(root)
 	mark_keep_out(root, data["radius"])
 	return root

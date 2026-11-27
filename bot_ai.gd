@@ -1,5 +1,6 @@
 extends RefCounted
 
+const TACTICAL_NODES := preload("res://tactical_nodes.gd")
 const ROSTER := preload("res://character_roster.gd")
 
 enum Role { RUSHER, FLANKER, MARKSMAN, GUARD, WILDCARD }
@@ -43,6 +44,12 @@ class BotState:
 	var camp_time := 0.0
 	var action := "patrol"
 	var visible_count := 0
+	var tactic: Dictionary = {}
+	var tactic_refresh := 0.0
+	var hide_hold := 0.0
+	var hide_cooldown := 0.0
+	var climbing := false
+	var climb_left := 0.0
 	var flank_goal := Vector3.INF
 	var flank_focus := Vector3.INF
 
@@ -53,6 +60,7 @@ var high_ground := PackedVector3Array()
 var arena: Node3D
 var difficulty: int
 var step_timer := 0.0
+var tactical_nodes: TACTICAL_NODES
 
 func _init(owner_arena: Node3D, level: int) -> void:
 	arena = owner_arena
@@ -85,6 +93,7 @@ func bake_map() -> void:
 	nav_region.set_navigation_map(nav_map)
 	nav_region.tree_exited.connect(func(): NavigationServer3D.free_rid(nav_map))
 	arena.add_child(nav_region)
+	tactical_nodes = TACTICAL_NODES.new(arena)
 	for vertex in mesh.get_vertices():
 		if vertex.y > 0.8 and vertex.y < 3.3:
 			high_ground.append(vertex)
@@ -120,6 +129,7 @@ func register(bot: CharacterBody3D, team: int, index: int, skin: int) -> void:
 	bot_state.facing = Vector3(-bot.position.x, 0, -bot.position.z).normalized()
 	bot_state.patrol = Vector3(randf_range(-13, 13), 0.1, randf_range(-12, 12))
 	bot_state.think_left = 0.12 * index
+	bot_state.tactic_refresh = fmod(0.071 * index, 0.5)
 	bot_state.flank = 1.0 if index % 2 == 0 else -1.0
 	states[bot] = bot_state
 	bot.set_meta("team", team)
@@ -141,6 +151,11 @@ func heard(source_team: int, point: Vector3, radius: float) -> void:
 func hit(bot: CharacterBody3D, from: Vector3) -> void:
 	var bot_state: BotState = states[bot]
 	bot_state.last_threat = from
+	bot_state.tactic.clear()
+	bot_state.climbing = false
+	bot_state.hide_hold = 0.0
+	bot_state.hide_cooldown = 2.5
+	bot.set_meta("tactical_hidden", false)
 	bot_state.cover_refresh = 0.0
 	bot_state.hide_left = 0.9
 	bot_state.memory = from
@@ -164,6 +179,9 @@ func update(delta: float) -> void:
 
 func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	state.think_left -= delta
+	state.tactic_refresh -= delta
+	state.hide_cooldown -= delta
+	state.hide_hold -= delta
 	state.memory_left -= delta
 	state.reposition_left -= delta
 	state.reaction_left -= delta
@@ -174,15 +192,62 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 		state.reload_left = maxf(0.0, state.reload_left - delta)
 		if state.reload_left == 0.0:
 			state.ammo = arena.MAGAZINES[state.marker]
+	if state.climbing:
+		tick_climb(bot, state, delta)
+		return
 	if state.think_left <= 0.0:
 		state.think_left = THINK_INTERVAL[difficulty]
 		think(bot, state)
 	var hiding := state.action == "retreat" or (state.action == "cover" and (state.hide_left > 0.0 or state.reload_left > 0.0))
-	var under_cover := hiding and bot.position.distance_to(state.cover) < 1.05
+	var kind: String = state.tactic.get("kind", "")
+	var position: Vector3 = state.tactic.get("point", Vector3.INF)
+	if kind == "climb" and bot.position.distance_to(position) < 0.7:
+		state.climbing = true
+		state.climb_left = 2.5
+		bot.set_meta("tactical_hidden", false)
+		arena.set_bot_crouch(bot, false)
+		tick_climb(bot, state, delta)
+		return
+	var concealed := kind == "hide" and bot.position.distance_to(position) < 0.66
+	if concealed and not bot.get_meta("tactical_hidden", false):
+		state.hide_hold = 3.5
+	if concealed and state.hide_hold <= 0.0:
+		concealed = false
+		state.tactic.clear()
+		state.hide_cooldown = 3.5
+	bot.set_meta("tactical_hidden", concealed)
+	var under_cover := concealed or (hiding and bot.position.distance_to(state.cover) < 1.05)
 	arena.set_bot_crouch(bot, under_cover)
-	if not under_cover and is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
+	var ambush := concealed and is_instance_valid(state.target) and state.target.position.distance_to(bot.position) < 9.0
+	if (not under_cover or ambush) and is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
+		var ammo_before := state.ammo
 		fire(bot, state)
+		if concealed and state.ammo < ammo_before:
+			bot.set_meta("tactical_hidden", false)
+			state.tactic.clear()
+			state.hide_cooldown = 3.5
 	follow_path(bot, state, delta)
+
+func tick_climb(bot: CharacterBody3D, state: BotState, delta: float) -> void:
+	var top: Vector3 = state.tactic["top"]
+	var start: Vector3 = state.tactic["point"]
+	var rise := Vector3(start.x, top.y, start.z)
+	var waypoint := rise if absf(bot.position.y - top.y) > 0.09 else top
+	var motion := (waypoint - bot.position).limit_length(3.7 * delta)
+	state.climb_left -= delta
+	bot.velocity = Vector3.ZERO
+	var collision := bot.move_and_collide(motion)
+	var facing := top - rise
+	facing.y = 0.0
+	if not facing.is_zero_approx():
+		state.facing = facing.normalized()
+	bot.get_meta("paint_sprite").update_motion(state.facing, 0.0, delta)
+	if collision != null or state.climb_left <= 0.0 or bot.position.distance_to(top) <= 0.1:
+		state.climbing = false
+		state.tactic.clear()
+		state.path.clear()
+		state.destination = Vector3.INF
+		state.tactic_refresh = 2.0
 
 func think(bot: CharacterBody3D, state: BotState) -> void:
 	var target := visible_target(bot, state)
@@ -207,7 +272,8 @@ func think(bot: CharacterBody3D, state: BotState) -> void:
 		if is_instance_valid(observer) and observer != bot and bot.position.distance_to(observer.position) < 26.0:
 			state.memory = report["point"]
 			state.memory_left = maxf(state.memory_left, float(report["remaining"]))
-	if state.memory_left <= 0.0:
+	if state.memory_left <= 0.0 and not bot.get_meta("tactical_hidden", false):
+		state.tactic.clear()
 		state.camp_time = 0.0
 		state.camp_anchor = Vector3.INF
 		state.action = "patrol"
@@ -225,6 +291,25 @@ func think(bot: CharacterBody3D, state: BotState) -> void:
 	var previous := state.action
 	state.action = choose_action(bot, state, visible)
 	var destination := focus
+	if bot.get_meta("tactical_hidden", false) and state.hide_hold > 0.0 and not state.tactic.is_empty():
+		set_destination(bot, state, state.tactic["point"])
+		return
+	if state.tactic_refresh <= 0.0:
+		state.tactic_refresh = 0.5 + randf_range(-0.05, 0.05)
+		var kinds: Array[String] = []
+		if state.action == "cover" or state.action == "retreat":
+			kinds.append("cover")
+		if not visible and state.hide_cooldown <= 0.0 and state.role in [Role.FLANKER, Role.GUARD]:
+			kinds.append("hide")
+		if state.role == Role.MARKSMAN and state.action != "retreat" and state.reload_left <= 0.0:
+			kinds.append("climb")
+		state.tactic = tactical_nodes.evaluate(bot, nav_region.get_navigation_map(), focus, kinds,
+			1.0 + float(state.personality[6]) * 0.3, 1.0 + float(state.personality[5]) * 0.25,
+			1.65 if state.role == Role.MARKSMAN else 0.75)
+	var kind: String = state.tactic.get("kind", "")
+	if kind == "climb" or (kind == "hide" and not visible):
+		set_destination(bot, state, state.tactic["point"])
+		return
 	match state.action:
 		"search":
 			if bot.position.distance_to(focus) < 1.2:
@@ -232,7 +317,7 @@ func think(bot: CharacterBody3D, state: BotState) -> void:
 		"retreat", "cover":
 			var retreat := state.action == "retreat"
 			if previous != state.action or state.cover_refresh <= 0.0 or state.cover_focus.distance_to(focus) > 3.5:
-				var positions := cover_position(bot, focus, retreat)
+				var positions := PackedVector3Array([state.tactic["point"], state.tactic["peek"]]) if kind == "cover" else cover_position(bot, focus, retreat)
 				state.cover = positions[0]
 				state.peek = positions[1]
 				state.cover_focus = focus
@@ -307,6 +392,8 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 		var end: Vector3 = candidate.position + Vector3.UP * (0.72 if (arena.crouched if candidate == arena.player else candidate.get_meta("crouched", false)) else 1.12)
 		var difference := end - origin
 		var distance := difference.length()
+		if candidate.get_meta("tactical_hidden", false) and distance > 3.0:
+			continue
 		if distance >= 31.0:
 			continue
 		if candidate == arena.player and arena.player.get("hiding") and distance > 5.0:
