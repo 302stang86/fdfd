@@ -19,6 +19,9 @@ const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launc
 const DESCRIPTIONS := ["Rapid fire · slow reload", "Slow fire · fast reload", "Slow fire · moderate reload · area splash"]
 
 var home: VBoxContainer
+var frame: VBoxContainer
+var menu_scroll: ScrollContainer
+var mobile_device := false
 var outfits: OptionButton
 var markers: OptionButton
 var maps: OptionButton
@@ -70,11 +73,12 @@ func _ready() -> void:
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)
 	shade.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
-	var frame := VBoxContainer.new()
+	frame = VBoxContainer.new()
 	frame.add_theme_constant_override("separation", 0)
 	add_child(frame)
 	frame.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	var scroll := ScrollContainer.new()
+	menu_scroll = scroll
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.follow_focus = true
@@ -181,12 +185,16 @@ func _ready() -> void:
 	home.add_child(volume)
 	apply_volume(volume.value)
 	volume.value_changed.connect(apply_volume)
-	var phone := OS.has_feature("web_android") or OS.has_feature("web_ios") or OS.has_feature("mobile")
+	mobile_device = OS.has_feature("web_android") or OS.has_feature("web_ios") or OS.has_feature("mobile")
+	if OS.has_feature("web"):
+		mobile_device = mobile_device or bool(JavaScriptBridge.eval("matchMedia('(pointer: coarse)').matches"))
 	mobile_button = CheckButton.new()
 	mobile_button.text = "Mobile controls"
-	mobile_button.button_pressed = bool(settings.get_value("match", "mobile", phone))
+	mobile_button.button_pressed = bool(settings.get_value("match", "mobile", mobile_device))
 	home.add_child(mobile_button)
-	mobile_button.toggled.connect(func(_active: bool): save_match_setup())
+	mobile_button.toggled.connect(func(_active: bool):
+		save_match_setup()
+		update_menu_layout())
 	add_button("Cheat mode", open_cheats)
 
 	build_stage()
@@ -216,6 +224,7 @@ func _ready() -> void:
 	refresh_showcase()
 	update_summary()
 	resized.connect(update_menu_layout)
+	frame.minimum_size_changed.connect(update_menu_layout.call_deferred)
 	update_menu_layout()
 	show_drawer("Match Rules" if size.x >= 900.0 else "")
 
@@ -231,7 +240,19 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 func update_menu_layout() -> void:
-	var compact := size.x < 900.0
+	var fit := mobile_device or mobile_button.button_pressed
+	menu_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if fit else ScrollContainer.SCROLL_MODE_AUTO
+	menu_scroll.follow_focus = not fit
+	if fit:
+		frame.set_anchors_and_offsets_preset(PRESET_TOP_LEFT)
+		var minimum := frame.get_combined_minimum_size().max(Vector2(940, 650))
+		var factor := maxf(0.01, minf(1.0, minf(size.x / minimum.x, size.y / minimum.y)))
+		frame.scale = Vector2.ONE * factor
+		frame.size = size / factor
+	else:
+		frame.scale = Vector2.ONE
+		frame.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	var compact := not fit and size.x < 900.0
 	header.vertical = size.x < 520.0
 	layout.vertical = compact
 	side.vertical = compact
@@ -498,7 +519,7 @@ func rotate_showcase(event: InputEvent) -> void:
 		stage.accept_event()
 
 func show_help() -> void:
-	show_info("How to play", "Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire and hold right-click to steady the marker. Your marker reloads automatically when empty. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches count hits without elimination.\n\nFor mobile, turn on Mobile controls in Settings and rotate to landscape. Left stick moves, right stick looks. Use the labeled buttons for actions.\n\nEsc releases the mouse. M opens the menu.")
+	show_info("How to play", "Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire and hold right-click to steady the marker. Your marker reloads automatically when empty. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches count hits without elimination.\n\nFor mobile, turn on Mobile controls in Settings and rotate to landscape. Move with the left stick and drag the right side to look. Hold either FIRE button to keep firing through automatic reloads. DOOR appears when you can open or close a nearby door.\n\nEsc releases the mouse. M opens the menu.")
 
 func show_info(title: String, body: String) -> void:
 	var dialog := AcceptDialog.new()
