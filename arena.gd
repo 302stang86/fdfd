@@ -25,6 +25,7 @@ const WOOD_FENCE_MODELS: Array[PackedScene] = [preload("res://assets/models/wood
 const RUBBLE_MODELS: Array[PackedScene] = [preload("res://assets/models/rubble_pile.glb")]
 const CAR_WRECK_MODELS: Array[PackedScene] = [preload("res://assets/models/car_wreck.glb")]
 const ARENA_EDGE := ARENA_SIZE / 2.0
+const ROSTER := preload("res://character_roster.gd")
 const BOT_AI := preload("res://bot_ai.gd")
 const BOT_MODEL := preload("res://bot_model.gd")
 const ARENA_SCENERY := preload("res://arena_scenery.gd")
@@ -389,13 +390,13 @@ func start_match() -> void:
 	bots.clear()
 	bot_ai.reset()
 	spawn = locations[0]
-	var skins := [0, 1, 2, 3, 4, 5, 6, 7]
+	var skins := range(ROSTER.PROFILES.size())
 	skins.shuffle()
 	for index in range(locations.size() - 1):
 		var team := 0 if index >= enemy_count else 1
 		var bot := actor(locations[index + 1], true, team, skins[index % skins.size()])
 		bots.append(bot)
-		bot_ai.register(bot, team, index)
+		bot_ai.register(bot, team, index, skins[index % skins.size()])
 	player.position = spawn
 	set_crouched(false)
 	camera.position.y = STANDING_EYE

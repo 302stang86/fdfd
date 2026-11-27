@@ -4,6 +4,7 @@ extends RefCounted
 # facing +Z, split into Torso / ArmA / ArmB / LegA / LegB nodes whose origins are the joints.
 
 const SIDE_MATERIAL := preload("res://character_side_wrap.gdshader")
+const ROSTER := preload("res://character_roster.gd")
 const EMO_MODEL := preload("res://emo_character.gd")
 const STAND_HEIGHT := 1.5
 const CROUCH_HEIGHT := 1.0
@@ -18,13 +19,13 @@ const MODELS: Array[PackedScene] = [
 	preload("res://assets/models/characters/char_robot.glb"),
 ]
 # How far (radians) each outfit's legs swing while walking. Long coats swing less.
-const LEG_SWING := [0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.43]
+const LEG_SWING := [0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.43, 0.50, 0.51, 0.46, 0.48, 0.40]
 
 static var profile_meshes: Dictionary = {}
 
 static func make(skin: int) -> Node3D:
-	if skin == 7:
-		return EMO_MODEL.make()
+	if skin >= 7:
+		return EMO_MODEL.make(skin - 7)
 	var skin_index := clampi(skin, 0, MODELS.size() - 1)
 	var model := MODELS[skin_index].instantiate()
 	add_profile_depth(model, skin_index)

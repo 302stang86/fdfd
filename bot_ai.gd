@@ -1,5 +1,7 @@
 extends RefCounted
 
+const ROSTER := preload("res://character_roster.gd")
+
 enum Role { RUSHER, FLANKER, MARKSMAN, GUARD, WILDCARD }
 
 const MARKERS := [0, 0, 1, 0, 2]
@@ -12,6 +14,7 @@ const STANDOFF := [6.0, 9.0, 17.0, 12.5, 10.5]
 
 class BotState:
 	var role: int
+	var personality: Array
 	var team: int
 	var marker: int
 	var ammo: int
@@ -107,9 +110,10 @@ func reset() -> void:
 	team_reports.clear()
 	step_timer = 0.0
 
-func register(bot: CharacterBody3D, team: int, index: int) -> void:
+func register(bot: CharacterBody3D, team: int, index: int, skin: int) -> void:
 	var bot_state := BotState.new()
-	bot_state.role = randi_range(0, ROLE_NAMES.size() - 1)
+	bot_state.personality = ROSTER.profile(skin)
+	bot_state.role = ROSTER.pick_role(skin)
 	bot_state.team = team
 	bot_state.marker = MARKERS[bot_state.role]
 	bot_state.ammo = arena.MAGAZINES[bot_state.marker]
@@ -119,6 +123,7 @@ func register(bot: CharacterBody3D, team: int, index: int) -> void:
 	bot_state.flank = 1.0 if index % 2 == 0 else -1.0
 	states[bot] = bot_state
 	bot.set_meta("team", team)
+	bot.set_meta("personality", bot_state.personality[2])
 	bot.set_meta("role", ROLE_NAMES[bot_state.role])
 	bot.set_meta("marker", bot_state.marker)
 	bot.get_meta("paint_sprite").update_motion(bot_state.facing, 0.0, 0.0)
@@ -182,7 +187,7 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 func think(bot: CharacterBody3D, state: BotState) -> void:
 	var target := visible_target(bot, state)
 	if target != state.target:
-		state.reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3)
+		state.reaction_left = REACTION[difficulty] * float(state.personality[7]) * randf_range(0.8, 1.3)
 		state.burst_left = 0
 		state.target = target
 	var visible := is_instance_valid(target)
@@ -275,8 +280,8 @@ func choose_action(bot: CharacterBody3D, state: BotState, visible: bool) -> Stri
 	var scores := {
 		"search": 2.5 if not visible else -1.0,
 		"engage": 3.6 if visible else 0.0,
-		"flank": (3.35 if state.role == Role.FLANKER else 1.2) + camper * 4.0 + minf(allies, 2) * 0.4,
-		"cover": 0.65 + (6.0 if state.reload_left > 0.0 else 0.0) + (4.0 if state.reposition_left > 0.0 else 0.0),
+		"flank": (3.35 if state.role == Role.FLANKER else 1.2) + camper * 4.0 + minf(allies, 2) * 0.4 + float(state.personality[5]),
+		"cover": 0.65 + float(state.personality[6]) + (6.0 if state.reload_left > 0.0 else 0.0) + (4.0 if state.reposition_left > 0.0 else 0.0),
 		"retreat": (4.8 if wounded and (state.reposition_left > -2.0 or state.visible_count > 1) else 0.0) + pressure * 2.6,
 	}
 	var best := "search"

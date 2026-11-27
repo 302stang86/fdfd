@@ -14,8 +14,7 @@ const CHEAT_OPTIONS := {
 	"one_hit": "One-hit tags (bots go down in one hit)",
 	"fast_reload": "Instant reload",
 }
-const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo"]
-const COLORS := ["#63774b", "#34313d", "#db4f64", "#dcb05a", "#405a86", "#e9b5cb", "#9bb3ba", "#543b64"]
+const ROSTER := preload("res://character_roster.gd")
 const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launcher"]
 const DESCRIPTIONS := ["Rapid fire · slow reload", "Slow fire · fast reload", "Slow fire · moderate reload · area splash"]
 
@@ -41,6 +40,7 @@ var stage: SubViewportContainer
 var turntable: Node3D
 var showcase: Node3D
 var stage_name: Label
+var personality_label: Label
 var crouch_preview: CheckButton
 var summary: Label
 var display_font: FontVariation
@@ -145,7 +145,12 @@ func _ready() -> void:
 		page.hide()
 
 	home = drawer_views["Operative"]
-	outfits = picker("Outfit", OUTFITS)
+	var outfit_names := []
+	for entry in ROSTER.PROFILES:
+		outfit_names.append(entry[0])
+	outfits = picker("Outfit", outfit_names)
+	personality_label = add_label("")
+	personality_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	outfits.select(saved_option("outfit", 5, outfits.item_count))
 	home = drawer_views["Marker"]
 	markers = picker("Paintball marker", MARKERS)
@@ -470,7 +475,9 @@ func refresh_showcase() -> void:
 	turntable.add_child(showcase)
 	showcase.setup(outfits.selected, false)
 	showcase.set_crouching(crouch_preview.button_pressed)
-	stage_name.text = outfits.text
+	var profile := ROSTER.profile(outfits.selected)
+	stage_name.text = "%s · %s" % [outfits.text, profile[2]]
+	personality_label.text = profile[3]
 
 func rotate_showcase(event: InputEvent) -> void:
 	if event is InputEventScreenDrag or (event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT):
@@ -533,7 +540,7 @@ func play_match() -> void:
 	arena = ARENA.instantiate()
 	apply_aim_settings()
 	arena.marker_id = markers.selected
-	arena.outfit_color = Color(COLORS[outfits.selected])
+	arena.outfit_color = Color(ROSTER.profile(outfits.selected)[1])
 	arena.map_id = maps.selected
 	arena.team_match = mode_picker.selected > 0
 	arena.six_vs_six = mode_picker.selected == 2
@@ -662,7 +669,7 @@ func test_layout(layout: Dictionary) -> void:
 	arena = ARENA.instantiate()
 	apply_aim_settings()
 	arena.marker_id = markers.selected
-	arena.outfit_color = Color(COLORS[outfits.selected])
+	arena.outfit_color = Color(ROSTER.profile(outfits.selected)[1])
 	arena.map_id = 3
 	arena.team_match = mode_picker.selected > 0
 	arena.six_vs_six = mode_picker.selected == 2
