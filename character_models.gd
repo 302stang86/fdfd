@@ -20,7 +20,21 @@ const MODELS: Array[PackedScene] = [
 const LEG_SWING := [0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.3]
 
 static func make(skin: int) -> Node3D:
-	return MODELS[clampi(skin, 0, MODELS.size() - 1)].instantiate()
+	var model := MODELS[clampi(skin, 0, MODELS.size() - 1)].instantiate()
+	if skin == 5:
+		for child in model.find_children("*", "MeshInstance3D", true, false):
+			var mesh := child as MeshInstance3D
+			if mesh.mesh == null:
+				continue
+			for index in range(mesh.mesh.get_surface_count()):
+				var source := mesh.get_active_material(index) as BaseMaterial3D
+				if source == null:
+					continue
+				var opaque := source.duplicate() as BaseMaterial3D
+				opaque.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+				opaque.cull_mode = BaseMaterial3D.CULL_DISABLED
+				mesh.set_surface_override_material(index, opaque)
+	return model
 
 # Crouching squashes the standing model to the 1.0 m crouch height.
 static func crouch_scale(enabled: bool) -> Vector3:
