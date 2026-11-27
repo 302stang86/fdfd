@@ -149,6 +149,7 @@ func _ready() -> void:
 	for entry in ROSTER.PROFILES:
 		outfit_names.append(entry[0])
 	outfits = picker("Outfit", outfit_names)
+	outfits.tooltip_text = "Use Up and Down to browse operatives."
 	personality_label = add_label("")
 	personality_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	outfits.select(saved_option("outfit", 5, outfits.item_count))
@@ -216,6 +217,17 @@ func _ready() -> void:
 	resized.connect(update_menu_layout)
 	update_menu_layout()
 	show_drawer("Match Rules" if size.x >= 900.0 else "")
+
+func _input(event: InputEvent) -> void:
+	if not is_visible_in_tree() or active_drawer != "Operative" or outfits == null:
+		return
+	if event is InputEventKey and event.pressed and not outfits.get_popup().visible:
+		if event.keycode == KEY_UP or event.keycode == KEY_DOWN:
+			var step := -1 if event.keycode == KEY_UP else 1
+			var index := wrapi(outfits.selected + step, 0, outfits.item_count)
+			outfits.select(index)
+			outfits.item_selected.emit(index)
+			get_viewport().set_input_as_handled()
 
 func update_menu_layout() -> void:
 	var compact := size.x < 900.0

@@ -24,6 +24,8 @@ const LEG_SWING := [0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.43, 0.50, 0.51, 0.46,
 static var profile_meshes: Dictionary = {}
 
 static func make(skin: int) -> Node3D:
+	if skin == 4:
+		return TEXTURED_OPERATIVES.make(6)
 	if skin >= 7:
 		return TEXTURED_OPERATIVES.make(skin - 7)
 	var skin_index := clampi(skin, 0, MODELS.size() - 1)

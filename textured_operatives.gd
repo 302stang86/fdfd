@@ -1,5 +1,6 @@
 extends RefCounted
 
+const TWO_VIEW := preload("res://assets/models/characters/emo_police_front_back.png")
 const ATLAS := preload("res://assets/models/characters/operative_atlas.png")
 const FABRIC := preload("res://operative_fabric.gdshader")
 const SIDES := 20
@@ -34,11 +35,24 @@ const LEG := [
 	[[236, 26, 25, 25], [277, 31, 25, 24], [315, 36, 22, 22], [354, 42, 21, 19], [395, 47, 20, 18], [432, 51, 17, 16], [469, 55, 15, 19], [491, 59, 18, 27], [498, 59, 17, 26]],
 	[[238, 27, 24, 25], [279, 33, 25, 26], [319, 39, 22, 22], [355, 44, 23, 21], [394, 49, 21, 20], [434, 53, 17, 17], [467, 55, 17, 20], [490, 57, 19, 27], [498, 57, 19, 26]],
 ]
+const TWO_TORSO := [
+	[[20, 17, 21], [39, 28, 33], [78, 31, 33], [105, 35, 27], [120, 49, 27], [150, 43, 43], [185, 37, 38], [219, 43, 39], [249, 49, 43], [278, 49, 40], [302, 29, 30]],
+	[[12, 16, 16], [22, 31, 33], [42, 25, 31], [67, 23, 29], [91, 24, 23], [109, 54, 33], [149, 57, 46], [190, 49, 45], [235, 57, 41], [273, 55, 39], [306, 29, 28]],
+]
+const TWO_ARM := [
+	[[123, 50, 11, 14], [150, 51, 12, 15], [180, 60, 10, 13], [212, 73, 11, 12], [254, 92, 8, 10], [288, 105, 10, 10], [313, 110, 6, 8]],
+	[[115, 62, 13, 17], [144, 69, 13, 17], [175, 77, 13, 16], [209, 88, 12, 13], [244, 100, 10, 11], [285, 111, 10, 11], [314, 116, 7, 8]],
+]
+const TWO_LEG := [
+	[[277, 30, 24, 27], [316, 33, 23, 24], [364, 36, 20, 21], [404, 40, 19, 18], [448, 44, 18, 19], [500, 48, 14, 18], [550, 49, 12, 18], [584, 51, 16, 30], [600, 51, 16, 28]],
+	[[277, 31, 25, 27], [317, 36, 25, 26], [363, 42, 22, 24], [411, 43, 19, 21], [456, 48, 18, 19], [502, 51, 17, 18], [553, 54, 14, 18], [592, 57, 18, 30], [606, 57, 18, 28]],
+]
+
 static var options: Dictionary = {}
 
 static func make(variant: int) -> Node3D:
 	var root := Node3D.new()
-	var key := clampi(variant, 0, TORSO.size() - 1)
+	var key := clampi(variant, 0, TORSO.size())
 	if not options.has(key):
 		options[key] = build_outfit(key)
 	for item in options[key]:
@@ -51,40 +65,48 @@ static func make(variant: int) -> Node3D:
 
 static func build_outfit(variant: int) -> Array:
 	var result := []
-	var unit := 1.5 / float(SOLE[variant] - HEAD_TOP[variant])
+	var dual := variant == 0 or variant == 6
+	var view_index := 1 if variant == 6 else 0
+	var sole := 608.0 if variant == 6 else (603.0 if dual else float(SOLE[variant]))
+	var top := 8.0 if variant == 6 else (15.0 if dual else float(HEAD_TOP[variant]))
+	var unit := 1.5 / (sole - top)
 	var fabric := ShaderMaterial.new()
 	fabric.shader = FABRIC
-	fabric.set_shader_parameter("atlas", ATLAS)
+	fabric.set_shader_parameter("atlas", TWO_VIEW if dual else ATLAS)
+	fabric.set_shader_parameter("has_back", dual)
 	fabric.set_shader_parameter("row_start", (512.0 if variant >= 3 else 0.0) / 1024.0)
 	fabric.set_shader_parameter("hood_color", [Color("#482133"), Color("#3e492e"), Color("#443429"),
-		Color("#783d28"), Color("#414034"), Color("#34383e")][variant])
-	result.append(["Torso", Vector3.ZERO, loft(TORSO[variant], variant, 0.0, unit, Vector3.ZERO, fabric)])
+		Color("#783d28"), Color("#414034"), Color("#34383e")][mini(variant, 5)])
+	result.append(["Torso", Vector3.ZERO, loft(TWO_TORSO[view_index] if dual else TORSO[variant], variant, 0.0, unit, sole, Vector3.ZERO, fabric)])
 	for sign_value in [-1.0, 1.0]:
 		var letter := "A" if sign_value < 0.0 else "B"
-		var arms: Array = ARM[variant]
-		var legs: Array = LEG[variant]
-		var arm_origin := anchor(arms[0], variant, sign_value, unit)
-		var leg_origin := anchor(legs[0], variant, sign_value, unit)
-		result.append(["Arm" + letter, arm_origin, loft(arms, variant, sign_value, unit, arm_origin, fabric)])
-		result.append(["Leg" + letter, leg_origin, loft(legs, variant, sign_value, unit, leg_origin, fabric)])
+		var arms: Array = TWO_ARM[view_index] if dual else ARM[variant]
+		var legs: Array = TWO_LEG[view_index] if dual else LEG[variant]
+		var arm_origin := anchor(arms[0], sole, sign_value, unit)
+		var leg_origin := anchor(legs[0], sole, sign_value, unit)
+		result.append(["Arm" + letter, arm_origin, loft(arms, variant, sign_value, unit, sole, arm_origin, fabric)])
+		result.append(["Leg" + letter, leg_origin, loft(legs, variant, sign_value, unit, sole, leg_origin, fabric)])
 	return result
 
-static func anchor(row: Array, variant: int, side: float, unit: float) -> Vector3:
-	return Vector3(float(row[1]) * side * unit, (SOLE[variant] - float(row[0])) * unit, 0)
+static func anchor(row: Array, sole: float, side: float, unit: float) -> Vector3:
+	return Vector3(float(row[1]) * side * unit, (sole - float(row[0])) * unit, 0)
 
-static func loft(rows: Array, variant: int, side: float, unit: float, pivot: Vector3, fabric: Material) -> ArrayMesh:
+static func loft(rows: Array, variant: int, side: float, unit: float, sole: float, pivot: Vector3, fabric: Material) -> ArrayMesh:
 	var positions := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uv := PackedVector2Array()
 	var indices := PackedInt32Array()
-	var column_offset := float(variant % 3) * CELL.x
-	var row_offset := CELL.y if variant >= 3 else 0.0
+	var dual := variant == 0 or variant == 6
+	var column_offset := 0.0 if dual else float(variant % 3) * CELL.x
+	var row_offset := (627.0 if variant == 6 else 0.0) if dual else (CELL.y if variant >= 3 else 0.0)
+	var center_pixel := 314.0 if dual else float(CENTERS[variant])
+	var atlas_size := Vector2(1254, 1254) if dual else Vector2(1536, 1024)
 	for row_index in range(rows.size()):
 		var row: Array = rows[row_index]
 		var center := 0.0 if side == 0.0 else float(row[1]) * side
 		var width := float(row[1] if side == 0.0 else row[2])
 		var depth := float(row[2] if side == 0.0 else row[3])
-		var height: float = (SOLE[variant] - float(row[0])) * unit
+		var height: float = (sole - float(row[0])) * unit
 		var boot := 0.0
 		if side != 0.0 and height < 0.16:
 			boot = (1.0 - height / 0.16) * 0.035
@@ -94,8 +116,8 @@ static func loft(rows: Array, variant: int, side: float, unit: float, pivot: Vec
 			var z := sin(angle)
 			positions.append(Vector3((center + width * x) * unit, height, z * depth * unit + boot) - pivot)
 			normals.append(Vector3(x / width, 0, z / depth).normalized())
-			var atlas_x: float = column_offset + CENTERS[variant] + center + x * maxf(2.0, width - 4.0)
-			uv.append(Vector2(atlas_x / 1536.0, (row_offset + float(row[0])) / 1024.0))
+			var atlas_x: float = column_offset + center_pixel + center + x * maxf(2.0, width - 4.0)
+			uv.append(Vector2(atlas_x / atlas_size.x, (row_offset + float(row[0])) / atlas_size.y))
 			if row_index < rows.size() - 1:
 				var a := row_index * SIDES + segment
 				var b := row_index * SIDES + (segment + 1) % SIDES
@@ -105,14 +127,14 @@ static func loft(rows: Array, variant: int, side: float, unit: float, pivot: Vec
 		var tip := positions.size()
 		var row: Array = rows[cap]
 		var center := 0.0 if side == 0.0 else float(row[1]) * side
-		var point := Vector3(center * unit, (SOLE[variant] - float(row[0])) * unit, 0) - pivot
+		var point := Vector3(center * unit, (sole - float(row[0])) * unit, 0) - pivot
 		if cap == 0:
 			point.y += 0.007
 		else:
 			point.y = maxf(0.0, point.y + pivot.y - 0.008) - pivot.y
 		positions.append(point)
 		normals.append(Vector3.UP if cap == 0 else Vector3.DOWN)
-		uv.append(Vector2((column_offset + CENTERS[variant] + center) / 1536.0, (row_offset + float(row[0])) / 1024.0))
+		uv.append(Vector2((column_offset + center_pixel + center) / atlas_size.x, (row_offset + float(row[0])) / atlas_size.y))
 		for segment in range(SIDES):
 			var a := base + segment
 			var b := base + (segment + 1) % SIDES
