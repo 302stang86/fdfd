@@ -14,7 +14,7 @@ const CHEAT_OPTIONS := {
 	"one_hit": "One-hit tags (bots go down in one hit)",
 	"fast_reload": "Instant reload",
 }
-const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo / goth"]
+const OUTFITS := ["Army fatigues", "Ninja", "Clown", "Firefighter", "Police officer", "Bunny cosplay", "Robot", "Emo"]
 const COLORS := ["#63774b", "#34313d", "#db4f64", "#dcb05a", "#405a86", "#e9b5cb", "#9bb3ba", "#543b64"]
 const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launcher"]
 const DESCRIPTIONS := ["Rapid fire · slow reload", "Slow fire · fast reload", "Slow fire · moderate reload · area splash"]
