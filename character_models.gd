@@ -5,7 +5,7 @@ extends RefCounted
 
 const SIDE_MATERIAL := preload("res://character_side_wrap.gdshader")
 const ROSTER := preload("res://character_roster.gd")
-const EMO_MODEL := preload("res://emo_character.gd")
+const TEXTURED_OPERATIVES := preload("res://textured_operatives.gd")
 const STAND_HEIGHT := 1.5
 const CROUCH_HEIGHT := 1.0
 const PARTS := ["Torso", "ArmA", "ArmB", "LegA", "LegB"]
@@ -25,7 +25,7 @@ static var profile_meshes: Dictionary = {}
 
 static func make(skin: int) -> Node3D:
 	if skin >= 7:
-		return EMO_MODEL.make(skin - 7)
+		return TEXTURED_OPERATIVES.make(skin - 7)
 	var skin_index := clampi(skin, 0, MODELS.size() - 1)
 	var model := MODELS[skin_index].instantiate()
 	add_profile_depth(model, skin_index)
