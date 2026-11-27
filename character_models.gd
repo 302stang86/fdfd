@@ -34,7 +34,31 @@ static func make(skin: int) -> Node3D:
 				opaque.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 				opaque.cull_mode = BaseMaterial3D.CULL_DISABLED
 				mesh.set_surface_override_material(index, opaque)
+		fill_bunny_neckline(model)
 	return model
+
+# The source silhouette has disconnected neck and bodice rings. Join them with
+# a closed fabric insert attached to the torso so it follows the crouch pose.
+static func fill_bunny_neckline(model: Node3D) -> void:
+	var torso := model.find_child("Torso", true, false) as Node3D
+	if torso == null:
+		return
+	var insert := MeshInstance3D.new()
+	insert.name = "NecklineInsert"
+	var fabric := StandardMaterial3D.new()
+	fabric.albedo_color = Color("#252129")
+	fabric.roughness = 0.88
+	var mesh := CylinderMesh.new()
+	mesh.top_radius = 0.060
+	mesh.bottom_radius = 0.082
+	mesh.height = 0.148
+	mesh.radial_segments = 24
+	mesh.rings = 0
+	mesh.material = fabric
+	insert.mesh = mesh
+	insert.position = Vector3(0.005, 1.093, 0.003)
+	insert.scale.z = 0.72
+	torso.add_child(insert)
 
 # Crouching squashes the standing model to the 1.0 m crouch height.
 static func crouch_scale(enabled: bool) -> Vector3:
