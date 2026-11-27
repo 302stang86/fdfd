@@ -4,6 +4,7 @@ const STREET_PROPS := preload("res://street_props.gd")
 const MAP_EDITOR := preload("res://map_editor.gd")
 const ARENA := preload("res://arena.tscn")
 const CHARACTER_PREVIEW := preload("res://bot_model.gd")
+const CROSSHAIR := preload("res://crosshair.gd")
 const MAP_FILE := "user://arenas.json"
 const CONFIG_FILE := "user://field-day.cfg"
 const CHEAT_HASH := "97aa791eaa8aee573cd373f0c352ea67d7788d6aa00849b0eea29ba3f5fcb0e6" # SHA-256 of the cheat password
@@ -120,6 +121,7 @@ func _ready() -> void:
 	for option in [outfits, markers, maps, mode_picker, difficulty_picker, ruleset_picker]:
 		option.item_selected.connect(func(_index: int): save_match_setup())
 	add_button("Play match", play_match)
+	add_button("Crosshair & paint color", open_aim_settings)
 	add_button("Create a map", open_editor)
 	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
@@ -158,6 +160,72 @@ func rules_picker(row: HBoxContainer, heading: String, items: Array, selected: i
 	options.select(selected)
 	column.add_child(options)
 	return options
+
+func open_aim_settings() -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Crosshair & paint color"
+	dialog.ok_button_text = "Done"
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.close_requested.connect(dialog.queue_free)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 9)
+	dialog.add_child(content)
+	var sample := ColorRect.new()
+	sample.color = Color("#233237")
+	sample.custom_minimum_size.y = 72
+	content.add_child(sample)
+	var reticle := CROSSHAIR.new()
+	sample.add_child(reticle)
+	reticle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	content.add_child(row)
+	var style := rules_picker(row, "Crosshair", CROSSHAIR.STYLES, aim_option("style", 0, CROSSHAIR.STYLES.size()))
+	var color := rules_picker(row, "Crosshair color", CROSSHAIR.COLOR_NAMES, aim_option("color", 1, CROSSHAIR.COLOR_NAMES.size()))
+	var paint := rules_picker(row, "Paint color", CROSSHAIR.COLOR_NAMES, aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size()))
+	var size_label := Label.new()
+	content.add_child(size_label)
+	var scale_slider := HSlider.new()
+	scale_slider.min_value = CROSSHAIR.MIN_SIZE
+	scale_slider.max_value = CROSSHAIR.MAX_SIZE
+	scale_slider.step = 1
+	scale_slider.value = aim_size()
+	content.add_child(scale_slider)
+
+	var refresh_preview := func():
+		reticle.style_index = style.selected
+		reticle.ink = CROSSHAIR.COLORS[color.selected]
+		reticle.diameter = int(scale_slider.value)
+		reticle.queue_redraw()
+		size_label.text = "Crosshair size · %d" % reticle.diameter
+	var save_preferences := func(_value: float):
+		settings.set_value("aim", "style", style.selected)
+		settings.set_value("aim", "color", color.selected)
+		settings.set_value("aim", "paint", paint.selected)
+		settings.set_value("aim", "size", int(scale_slider.value))
+		settings.save(CONFIG_FILE)
+		refresh_preview.call()
+	for option in [style, color, paint]:
+		option.item_selected.connect(save_preferences)
+	scale_slider.value_changed.connect(save_preferences)
+	refresh_preview.call()
+	add_child(dialog)
+	dialog.popup_centered(Vector2i(410, 240))
+
+func aim_option(key: String, default_value: int, count: int) -> int:
+	var option := int(settings.get_value("aim", key, default_value))
+	return option if option >= 0 and option < count else default_value
+
+func aim_size() -> int:
+	return clampi(int(settings.get_value("aim", "size", CROSSHAIR.DEFAULT_SIZE)), CROSSHAIR.MIN_SIZE, CROSSHAIR.MAX_SIZE)
+
+func apply_aim_settings() -> void:
+	arena.crosshair_style = aim_option("style", 0, CROSSHAIR.STYLES.size())
+	arena.crosshair_color = CROSSHAIR.COLORS[aim_option("color", 1, CROSSHAIR.COLOR_NAMES.size())]
+	arena.crosshair_size = aim_size()
+	arena.player_paint = CROSSHAIR.COLORS[aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size())]
 
 func apply_volume(value: float) -> void:
 	AudioServer.set_bus_mute(0, value == 0)
@@ -262,6 +330,7 @@ func refresh_maps() -> void:
 
 func play_match() -> void:
 	arena = ARENA.instantiate()
+	apply_aim_settings()
 	arena.marker_id = markers.selected
 	arena.outfit_color = Color(COLORS[outfits.selected])
 	arena.map_id = maps.selected
@@ -390,6 +459,7 @@ func close_editor() -> void:
 func test_layout(layout: Dictionary) -> void:
 	remove_child(editor)
 	arena = ARENA.instantiate()
+	apply_aim_settings()
 	arena.marker_id = markers.selected
 	arena.outfit_color = Color(COLORS[outfits.selected])
 	arena.map_id = 3

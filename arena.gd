@@ -31,6 +31,7 @@ const STREET_PROPS := preload("res://street_props.gd")
 const PLAYER_BODY := preload("res://player_body.gd")
 const MAP_LAYOUT := preload("res://map_layout.gd")
 const SPLAT_SECONDS := 4.0
+const CROSSHAIR := preload("res://crosshair.gd")
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
 const MARKER_VIEW := preload("res://marker_view.gd")
@@ -76,7 +77,11 @@ var return_button: Button
 var hit_circles: Array[Panel] = []
 var empty_hit_style: StyleBoxFlat
 var filled_hit_style: StyleBoxFlat
-var crosshair: Label
+var crosshair: CROSSHAIR
+var crosshair_style := 0
+var crosshair_color := CROSSHAIR.COLORS[1]
+var crosshair_size := CROSSHAIR.DEFAULT_SIZE
+var player_paint := PLAYER_PAINT
 var countdown_label: Label
 var countdown_left := COUNTDOWN_DURATION
 var go_left := 0.0
@@ -179,11 +184,13 @@ func _ready() -> void:
 	hud.add_theme_constant_override("outline_size", 6)
 	overlay.add_child(hud)
 	create_hit_counter(overlay)
-	crosshair = Label.new()
-	crosshair.text = "+"
+	crosshair = CROSSHAIR.new()
+	crosshair.style_index = crosshair_style
+	crosshair.ink = crosshair_color
+	crosshair.diameter = crosshair_size
+	crosshair.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(crosshair)
-	crosshair.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	crosshair.position -= crosshair.size / 2.0
+	crosshair.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var center := CenterContainer.new()
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(center)
@@ -528,15 +535,15 @@ func shoot() -> void:
 	var muzzle_blocked := trace(origin, muzzle, player.get_rid())
 	if not muzzle_blocked.is_empty() or origin.distance_to(target) < 0.8:
 		muzzle = origin
-	launch_paintball(muzzle, target, player.get_rid(), 0, marker_id)
+	launch_paintball(muzzle, target, player.get_rid(), 0, marker_id, player_paint)
 
-func launch_paintball(from: Vector3, to: Vector3, excluded: RID, team: int, marker: int) -> void:
+func launch_paintball(from: Vector3, to: Vector3, excluded: RID, team: int, marker: int, paint := Color.TRANSPARENT) -> void:
 	var ball := Paintball.new()
 	ball.excluded = excluded
 	ball.team = team
 	ball.source = from
 	ball.splash = marker == 2
-	ball.color = PLAYER_PAINT if team == 0 else BOT_PAINT
+	ball.color = paint if paint.a > 0.0 else (PLAYER_PAINT if team == 0 else BOT_PAINT)
 	var speed: float = PROJECTILE_SPEEDS[marker]
 	bot_ai.heard(team, from, 20.0 if ball.splash else 15.0)
 	ball.velocity = from.direction_to(to) * speed
