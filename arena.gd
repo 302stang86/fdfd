@@ -7,6 +7,7 @@ const CROUCH_HEIGHT := 1.0
 const STANDING_EYE := 1.35
 const CROUCH_EYE := 0.85
 const LOOK := 0.0025
+const MOBILE_LOOK := 0.0013
 const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
@@ -508,10 +509,10 @@ func _physics_process(delta: float) -> void:
 	jump_held = Input.is_physical_key_pressed(KEY_SPACE)
 	if touch != null:
 		var move: Vector2 = touch.move
-		var look: Vector2 = touch.take_look_delta()
+		var look: Vector2 = touch.take_look_delta(delta)
 		direction = Vector3(move.x, 0.0, move.y)
-		player.rotate_y(-look.x * LOOK)
-		camera.rotation.x = clampf(camera.rotation.x - look.y * LOOK, -1.45, 1.45)
+		player.rotate_y(-look.x * MOBILE_LOOK)
+		camera.rotation.x = clampf(camera.rotation.x - look.y * MOBILE_LOOK, -1.45, 1.45)
 		jump_held = touch.held("JUMP")
 		if touch.firing():
 			fire_requested = true
@@ -796,8 +797,6 @@ func update_timed_respawns(delta: float) -> void:
 				set_crouched(false)
 				camera.position.y = STANDING_EYE
 				camera.rotation.x = 0
-				var toward_center := -Vector2(point.x, point.z)
-				player.rotation.y = atan2(-toward_center.x, -toward_center.y)
 				player.collision_layer = player_collision_layer
 				marker_view.reset_motion()
 				marker_view.show()
