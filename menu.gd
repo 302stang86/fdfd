@@ -19,6 +19,7 @@ const MARKERS := ["Semi-auto rifle", "Sniper-style marker", "Paint grenade launc
 const DESCRIPTIONS := ["Rapid fire · slow reload", "Slow fire · fast reload", "Slow fire · moderate reload · area splash"]
 
 var home: VBoxContainer
+var account_button: Button
 var frame: VBoxContainer
 var menu_scroll: ScrollContainer
 var mobile_device := false
@@ -109,8 +110,7 @@ func _ready() -> void:
 	header.add_child(header_actions)
 	menu_button(header_actions, "Settings", func(): show_drawer("Settings"))
 	menu_button(header_actions, "Help", show_help)
-	menu_button(header_actions, "Guest", func():
-		show_info("Guest account", "You are playing as a guest. Custom maps are saved in this browser profile."))
+	account_button = menu_button(header_actions, "Guest", show_drawer.bind("Multiplayer"))
 	layout = BoxContainer.new()
 	layout.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	layout.add_theme_constant_override("separation", 14)
@@ -176,7 +176,9 @@ func _ready() -> void:
 	select_rule(mode_picker, saved_option("mode", 0, 3))
 	select_rule(difficulty_picker, saved_option("difficulty", 1, 3))
 	select_rule(ruleset_picker, saved_option("ruleset", 0, 2))
-	drawer_views["Multiplayer"].add_child(preload("res://multiplayer_lobby.gd").new())
+	var lobby := preload("res://multiplayer_lobby.gd").new()
+	lobby.account_changed.connect(update_account_button)
+	drawer_views["Multiplayer"].add_child(lobby)
 	home = drawer_views["Settings"]
 	add_label("Master volume")
 	var volume := HSlider.new()
@@ -265,6 +267,10 @@ func update_menu_layout() -> void:
 	stage.custom_minimum_size.y = 260 if compact else 340
 	play_dock.custom_minimum_size.x = 0 if compact else 465
 	play_dock.size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_SHRINK_END
+
+func update_account_button(account_email: String) -> void:
+	account_button.text = "Guest" if account_email.is_empty() else "Account"
+	account_button.tooltip_text = account_email
 
 func show_drawer(section: String) -> void:
 	active_drawer = "" if section == active_drawer else section
