@@ -3,6 +3,7 @@ extends Node3D
 # (setup / set_crouching / update_motion / paint) so arena.gd and bot_ai.gd barely change.
 
 const CHARACTER_MODELS := preload("res://character_models.gd")
+const PAINT_SPLAT := preload("res://paint_splat.gd")
 const LEG_RIG := preload("res://leg_crouch_rig.gd")
 const ALLY_COLOR := Color("#61eee8")
 const TURN_SPEED := 12.0
@@ -21,7 +22,6 @@ var crouch_blend := 0.0
 var rest_origins := {}
 var ally_badge: Label3D
 var stains: Array[MeshInstance3D] = []
-var stain_mesh: SphereMesh
 
 func setup(skin: int, allied: bool) -> void:
 	skin_id = skin
@@ -38,11 +38,6 @@ func setup(skin: int, allied: bool) -> void:
 			var rig := LEG_RIG.new()
 			if rig.install(part):
 				leg_rigs[key] = rig
-	stain_mesh = SphereMesh.new()
-	stain_mesh.radius = 0.065
-	stain_mesh.height = 0.13
-	stain_mesh.radial_segments = 8
-	stain_mesh.rings = 4
 	if allied:
 		ally_badge = Label3D.new()
 		ally_badge.text = "◆"
@@ -119,15 +114,8 @@ func update_motion(facing: Vector3, speed: float, delta: float) -> void:
 		walk_phase = fposmod(walk_phase + delta * speed * STRIDE_RATE, TAU)
 
 # A paintball hit leaves a splat on the character. `point` is in world space.
-func paint(point: Vector3, color: Color) -> void:
-	var splat := MeshInstance3D.new()
-	splat.mesh = stain_mesh
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	splat.material_override = material
-	splat.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	splat.scale = Vector3(1.0, 1.0, 0.45) * randf_range(0.9, 1.4)
+func paint(point: Vector3, normal: Vector3, color: Color) -> void:
+	var splat := PAINT_SPLAT.make(color, randf_range(0.083, 0.115))
 	var local := model.to_local(point)
 	local.x = clampf(local.x, -0.24, 0.24)
 	local.z = clampf(local.z, -0.16, 0.16)
@@ -140,7 +128,7 @@ func paint(point: Vector3, color: Color) -> void:
 		if rig != null:
 			parent = rig.stain_parent(world_position)
 	parent.add_child(splat)
-	splat.global_position = world_position
+	PAINT_SPLAT.place(splat, world_position, normal if not normal.is_zero_approx() else model.global_basis.z)
 	stains.append(splat)
 	if stains.size() > MAX_STAINS:
 		stains.pop_front().queue_free()

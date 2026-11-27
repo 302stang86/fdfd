@@ -32,6 +32,10 @@ const STREET_PROPS := preload("res://street_props.gd")
 const PLAYER_BODY := preload("res://player_body.gd")
 const MAP_LAYOUT := preload("res://map_layout.gd")
 const SPLAT_SECONDS := 4.0
+const PAINT_SPLAT := preload("res://paint_splat.gd")
+const LAUNCHER_SPLIT_DISTANCE := 1.0
+const LAUNCHER_SPREAD_RADIUS := 0.34
+const LAUNCHER_HIT_CAP := 2
 const CROSSHAIR := preload("res://crosshair.gd")
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
@@ -47,6 +51,17 @@ const CONTAINER_COVER: Array[PackedScene] = [
 const MARKER_VIEW := preload("res://marker_view.gd")
 const PROJECTILE_SPEEDS := [48.0, 66.0, 29.0]
 
+class LauncherBurst:
+	var hits: Dictionary = {}
+
+	func register(target: Node3D) -> bool:
+		var id := target.get_instance_id()
+		var count := int(hits.get(id, 0))
+		if count >= LAUNCHER_HIT_CAP:
+			return false
+		hits[id] = count + 1
+		return true
+
 class Paintball:
 	var mesh: MeshInstance3D
 	var velocity: Vector3
@@ -54,7 +69,8 @@ class Paintball:
 	var color: Color
 	var team: int
 	var source: Vector3
-	var splash: bool
+	var can_split := false
+	var burst: LauncherBurst
 	var distance_left := 70.0
 
 signal menu_requested
@@ -550,30 +566,65 @@ func launch_paintball(from: Vector3, to: Vector3, excluded: RID, team: int, mark
 	ball.excluded = excluded
 	ball.team = team
 	ball.source = from
-	ball.splash = marker == 2
+	ball.can_split = marker == 2
 	ball.color = paint if paint.a > 0.0 else (PLAYER_PAINT if team == 0 else BOT_PAINT)
-	var speed: float = PROJECTILE_SPEEDS[marker]
-	bot_ai.heard(team, from, 20.0 if ball.splash else 15.0)
-	ball.velocity = from.direction_to(to) * speed
+	ball.velocity = from.direction_to(to) * float(PROJECTILE_SPEEDS[marker])
+	bot_ai.heard(team, from, 20.0 if ball.can_split else 15.0)
+	spawn_projectile(ball, from, 1.65 if ball.can_split else 1.0)
+
+func spawn_projectile(ball: Paintball, from: Vector3, model_scale: float) -> void:
 	ball.mesh = MeshInstance3D.new()
 	ball.mesh.mesh = paintball_mesh
 	ball.mesh.material_override = paint_material(ball.color)
 	ball.mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	if ball.splash:
-		ball.mesh.scale = Vector3.ONE * 1.65
+	ball.mesh.scale = Vector3.ONE * model_scale
 	add_child(ball.mesh)
 	ball.mesh.global_position = from
 	paintballs.append(ball)
+
+func split_launcher_round(ball: Paintball, point: Vector3, contact: Vector3, direction: Vector3) -> void:
+	var burst := LauncherBurst.new()
+	var guide := Vector3.FORWARD if absf(direction.dot(Vector3.UP)) > 0.95 else Vector3.UP
+	var right := direction.cross(guide).normalized()
+	var up := right.cross(direction).normalized()
+	var rotation_offset := randf_range(0.0, TAU)
+	for index in range(5):
+		var aim := contact
+		if index > 0:
+			var angle := rotation_offset + (index - 1) * TAU / 4.0
+			var radius := LAUNCHER_SPREAD_RADIUS * randf_range(0.83, 1.10)
+			aim += (right * cos(angle) + up * sin(angle)) * radius
+		var fragment := Paintball.new()
+		fragment.excluded = ball.excluded
+		fragment.team = ball.team
+		fragment.source = ball.source
+		fragment.color = ball.color
+		fragment.burst = burst
+		fragment.velocity = point.direction_to(aim) * ball.velocity.length()
+		if fragment.velocity.is_zero_approx():
+			fragment.velocity = ball.velocity
+		fragment.distance_left = 2.65
+		spawn_projectile(fragment, point, 0.82)
 
 func advance_paintballs(delta: float) -> void:
 	for index in range(paintballs.size() - 1, -1, -1):
 		var ball := paintballs[index]
 		var origin := ball.mesh.global_position
-		var step := ball.velocity * delta
-		ball.distance_left -= step.length()
-		var hit := trace(origin, origin + step, ball.excluded)
+		var direction := ball.velocity.normalized()
+		var travel := minf(ball.velocity.length() * delta, ball.distance_left)
+		var lookahead := minf(travel + LAUNCHER_SPLIT_DISTANCE, ball.distance_left) if ball.can_split else travel
+		var hit := trace(origin, origin + direction * lookahead, ball.excluded)
+		if ball.can_split and not hit.is_empty():
+			var contact: Vector3 = hit["position"]
+			var split_after := maxf(0.0, origin.distance_to(contact) - LAUNCHER_SPLIT_DISTANCE)
+			if split_after <= travel:
+				ball.mesh.queue_free()
+				paintballs.remove_at(index)
+				split_launcher_round(ball, origin + direction * split_after, contact, direction)
+				continue
+		ball.distance_left -= travel
 		if hit.is_empty() and ball.distance_left > 0.0:
-			ball.mesh.global_position += step
+			ball.mesh.global_position += direction * travel
 			continue
 		ball.mesh.queue_free()
 		paintballs.remove_at(index)
@@ -584,33 +635,19 @@ func advance_paintballs(delta: float) -> void:
 				return
 
 func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
-	var target = hit["collider"]
+	var target: Node3D = hit["collider"]
 	var position_hit: Vector3 = hit["position"]
 	var normal: Vector3 = hit["normal"]
-	var direct_bot := target is CharacterBody3D and bots.has(target)
-	if direct_bot:
-		if int(target.get_meta("team")) != ball.team:
-			target.get_meta("paint_sprite").paint(position_hit, ball.color)
-			damage_bot(target, ball.source, ball.team)
-	elif target == player:
-		if ball.team != 0:
+	if target == player:
+		if ball.team != 0 and (ball.burst == null or ball.burst.register(player)):
 			hurt_player()
+	elif target is CharacterBody3D:
+		if bots.has(target) and int(target.get_meta("team")) != ball.team:
+			target.get_meta("paint_sprite").paint(position_hit, normal, ball.color)
+			if ball.burst == null or ball.burst.register(target):
+				damage_bot(target, ball.source, ball.team)
 	else:
-		add_splat(position_hit, normal, ball.color, 0.38 if ball.splash else 0.15, arena_splats, false)
-
-	if ball.splash and outcome.is_empty():
-		var splash_start := position_hit + normal * 0.09
-		for bot in bots.duplicate():
-			if bot == target or int(bot.get_meta("team")) == ball.team or bot.position.distance_to(position_hit) > 4.0:
-				continue
-			var splash_hit := trace(splash_start, bot.position + Vector3.UP * 0.65, ball.excluded)
-			if splash_hit.get("collider") == bot:
-				bot.get_meta("paint_sprite").paint(splash_hit["position"], ball.color)
-				damage_bot(bot, ball.source, ball.team)
-		if ball.team != 0 and target != player and player.position.distance_to(position_hit) <= 4.0:
-			var player_hit := trace(splash_start, player.position + Vector3.UP * 0.65, ball.excluded)
-			if player_hit.get("collider") == player:
-				hurt_player()
+		add_splat(position_hit, normal, ball.color, 0.15)
 	if not timed_match and outcome.is_empty() and remaining_opponents() == 0:
 		if mobile_mode:
 			show_match_result("Arena cleared!")
@@ -656,31 +693,13 @@ func paint_material(color: Color) -> StandardMaterial3D:
 	material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return material
 
-func add_splat(point: Vector3, normal: Vector3, color: Color, radius: float, parent: Node3D, persistent: bool) -> void:
+func add_splat(point: Vector3, normal: Vector3, color: Color, radius: float) -> void:
 	if normal.is_zero_approx():
 		return
-	var geometry := ImmediateMesh.new()
-	geometry.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var outline := PackedVector3Array()
-	for index in range(18):
-		var angle := TAU * index / 18.0
-		var edge := radius * randf_range(0.55, 1.12)
-		outline.append(Vector3(cos(angle) * edge, sin(angle) * edge, 0))
-	for index in range(outline.size()):
-		geometry.surface_add_vertex(Vector3.ZERO)
-		geometry.surface_add_vertex(outline[index])
-		geometry.surface_add_vertex(outline[(index + 1) % outline.size()])
-	geometry.surface_end()
-	var mark := MeshInstance3D.new()
-	mark.mesh = geometry
-	mark.material_override = paint_material(color)
-	mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	parent.add_child(mark)
-	mark.global_position = point + normal * 0.012
-	var up := Vector3.FORWARD if absf(normal.dot(Vector3.UP)) > 0.95 else Vector3.UP
-	mark.look_at(mark.global_position + normal, up)
-	if not persistent:
-		get_tree().create_timer(SPLAT_SECONDS).timeout.connect(mark.queue_free)
+	var mark := PAINT_SPLAT.make(color, radius)
+	arena_splats.add_child(mark)
+	PAINT_SPLAT.place(mark, point, normal)
+	get_tree().create_timer(SPLAT_SECONDS).timeout.connect(mark.queue_free)
 
 func update_countdown() -> void:
 	crosshair.visible = countdown_left <= 0.0
