@@ -15,6 +15,8 @@ var heading := 0.0
 var walk_phase := 0.0
 var walk_blend := 0.0
 var crouching := false
+var crouch_blend := 0.0
+var rest_origins := {}
 var ally_badge: Label3D
 var stains: Array[MeshInstance3D] = []
 var stain_mesh: SphereMesh
@@ -24,7 +26,10 @@ func setup(skin: int, allied: bool) -> void:
 	model = CHARACTER_MODELS.make(skin)
 	add_child(model)
 	for part_name in CHARACTER_MODELS.PARTS:
-		parts[part_name] = model.find_child(part_name, true, false)
+		var part := model.find_child(part_name, true, false) as Node3D
+		if part != null:
+			parts[part_name] = part
+			rest_origins[part_name] = part.position
 	stain_mesh = SphereMesh.new()
 	stain_mesh.radius = 0.065
 	stain_mesh.height = 0.13
@@ -47,10 +52,28 @@ func set_crouching(enabled: bool) -> void:
 	refresh()
 
 func refresh() -> void:
-	model.scale = CHARACTER_MODELS.crouch_scale(crouching)
 	if ally_badge != null:
 		var height: float = CHARACTER_MODELS.CROUCH_HEIGHT if crouching else CHARACTER_MODELS.STAND_HEIGHT
 		ally_badge.position.y = height + 0.22
+
+func _process(delta: float) -> void:
+	crouch_blend = move_toward(crouch_blend, 1.0 if crouching else 0.0, delta * 6.5)
+	var lean := smoothstep(0.0, 1.0, crouch_blend)
+	var leg_amplitude: float = CHARACTER_MODELS.LEG_SWING[skin_id]
+	var swing := sin(walk_phase) * walk_blend * leg_amplitude * lerpf(1.0, 0.36, lean)
+	pose_part("Torso", Vector3(0, -0.29, 0.08) * lean, 0.23 * lean)
+	pose_part("ArmA", Vector3(0, -0.26, 0.11) * lean, -0.70 * lean - swing * 0.8)
+	pose_part("ArmB", Vector3(0, -0.26, 0.11) * lean, -0.55 * lean + swing * 0.8)
+	pose_part("LegA", Vector3(0, -0.26, -0.04) * lean, -0.91 * lean + swing)
+	pose_part("LegB", Vector3(0, -0.25, -0.04) * lean, 0.82 * lean - swing)
+	if ally_badge != null:
+		ally_badge.position.y = lerpf(CHARACTER_MODELS.STAND_HEIGHT, CHARACTER_MODELS.CROUCH_HEIGHT, lean) + 0.22
+
+func pose_part(key: String, offset: Vector3, angle: float) -> void:
+	var part: Node3D = parts.get(key)
+	if part != null:
+		part.position = rest_origins[key] + offset
+		part.rotation.x = angle
 
 # facing: world direction the bot looks; speed: ground speed in m/s. delta == 0 snaps the heading.
 func update_motion(facing: Vector3, speed: float, delta: float) -> void:
@@ -63,12 +86,6 @@ func update_motion(facing: Vector3, speed: float, delta: float) -> void:
 	walk_blend = move_toward(walk_blend, 1.0 if moving else 0.0, maxf(delta, 0.0) * 6.0)
 	if moving:
 		walk_phase = fposmod(walk_phase + delta * speed * STRIDE_RATE, TAU)
-	var swing := sin(walk_phase) * walk_blend * (0.55 if crouching else 1.0)
-	var leg_amplitude: float = CHARACTER_MODELS.LEG_SWING[skin_id]
-	parts["LegA"].rotation.x = swing * leg_amplitude
-	parts["LegB"].rotation.x = -swing * leg_amplitude
-	parts["ArmA"].rotation.x = -swing * leg_amplitude * 0.8
-	parts["ArmB"].rotation.x = swing * leg_amplitude * 0.8
 
 # A paintball hit leaves a splat on the character. `point` is in world space.
 func paint(point: Vector3, color: Color) -> void:
@@ -80,11 +97,15 @@ func paint(point: Vector3, color: Color) -> void:
 	splat.material_override = material
 	splat.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	splat.scale = Vector3(1.0, 1.0, 0.45) * randf_range(0.9, 1.4)
-	model.add_child(splat)
 	var local := model.to_local(point)
 	local.x = clampf(local.x, -0.24, 0.24)
 	local.z = clampf(local.z, -0.16, 0.16)
-	splat.position = local
+	var parent: Node3D = parts.get("Torso", model)
+	if local.y < (0.40 if crouching else 0.66):
+		parent = parts.get("LegA" if local.x < 0.0 else "LegB", model)
+	var world_position := model.to_global(local)
+	parent.add_child(splat)
+	splat.global_position = world_position
 	stains.append(splat)
 	if stains.size() > MAX_STAINS:
 		stains.pop_front().queue_free()
