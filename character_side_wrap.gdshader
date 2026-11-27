@@ -5,6 +5,7 @@ uniform sampler2D atlas : source_color, filter_linear_mipmap, repeat_disable;
 uniform sampler2D rear_atlas : source_color, filter_linear_mipmap, repeat_disable;
 uniform vec4 rear_layout;
 uniform float front_center;
+uniform bool bunny_head = false;
 varying vec3 model_normal;
 
 void vertex() {
@@ -22,6 +23,12 @@ void fragment() {
 	vec3 back_color = texture(rear_atlas, vec2(rear_x / 1536.0, rear_y / 1024.0)).rgb;
 	float side = smoothstep(0.25, 0.92, abs(n.x));
 	float blend = mix(front ? 0.0 : 1.0, 0.5, side);
-	ALBEDO = mix(front_color, back_color, blend);
+	vec3 color = mix(front_color, back_color, blend);
+	if (bunny_head) {
+		// Keep the face projection on the front and use the rear artwork along the hairline.
+		float hair_band = smoothstep(0.081, 0.098, UV.y) * (1.0 - smoothstep(0.224, 0.242, UV.y));
+		color = mix(color, back_color, hair_band * smoothstep(0.38, 0.86, abs(n.x)));
+	}
+	ALBEDO = color;
 	ROUGHNESS = 0.86;
 }
