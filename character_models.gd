@@ -19,8 +19,12 @@ const MODELS: Array[PackedScene] = [
 # How far (radians) each outfit's legs swing while walking. Long coats swing less.
 const LEG_SWING := [0.5, 0.5, 0.5, 0.5, 0.5, 0.45, 0.45, 0.3]
 
+static var profile_meshes: Dictionary = {}
+
 static func make(skin: int) -> Node3D:
-	var model := MODELS[clampi(skin, 0, MODELS.size() - 1)].instantiate()
+	var skin_index := clampi(skin, 0, MODELS.size() - 1)
+	var model := MODELS[skin_index].instantiate()
+	add_profile_depth(model, skin_index)
 	if skin == 5:
 		for child in model.find_children("*", "MeshInstance3D", true, false):
 			var mesh := child as MeshInstance3D
@@ -36,6 +40,63 @@ static func make(skin: int) -> Node3D:
 				mesh.set_surface_override_material(index, opaque)
 		fill_bunny_neckline(model)
 	return model
+
+# The original loft follows the width of the front artwork. Add body depth
+# before the leg rig skins the mesh so the side view reads at every pose.
+static func add_profile_depth(model: Node3D, skin: int) -> void:
+	for part_name in PARTS:
+		var part := model.find_child(part_name, true, false) as Node3D
+		if part == null:
+			continue
+		var view := part as MeshInstance3D
+		if view == null:
+			var children := part.find_children("*", "MeshInstance3D", true, false)
+			if not children.is_empty():
+				view = children[0] as MeshInstance3D
+		if view == null or view.mesh == null:
+			continue
+		var key := "%d/%s" % [skin, part_name]
+		if not profile_meshes.has(key):
+			var height_offset := part.position.y
+			if view != part:
+				height_offset += view.position.y
+			profile_meshes[key] = shape_profile(view.mesh, part_name, height_offset)
+		view.mesh = profile_meshes[key]
+
+static func shape_profile(source: Mesh, part_name: String, height_offset: float) -> ArrayMesh:
+	var result := ArrayMesh.new()
+	for surface in range(source.get_surface_count()):
+		var arrays := source.surface_get_arrays(surface)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var normals := PackedVector3Array()
+		if arrays[Mesh.ARRAY_NORMAL] != null:
+			normals = arrays[Mesh.ARRAY_NORMAL]
+		for index in range(vertices.size()):
+			var vertex := vertices[index]
+			var height := vertex.y + height_offset
+			var multiplier := profile_scale(part_name, height)
+			if index < normals.size():
+				var gradient := (profile_scale(part_name, height + 0.002) - profile_scale(part_name, height - 0.002)) / 0.004
+				var normal := normals[index]
+				normal.z /= multiplier
+				normal.y -= normal.z * vertex.z * gradient
+				normals[index] = normal.normalized()
+			vertex.z *= multiplier
+			vertices[index] = vertex
+		arrays[Mesh.ARRAY_VERTEX] = vertices
+		if not normals.is_empty():
+			arrays[Mesh.ARRAY_NORMAL] = normals
+		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		result.surface_set_material(surface, source.surface_get_material(surface))
+	return result
+
+static func profile_scale(part_name: String, height: float) -> float:
+	if part_name == "Torso":
+		var body := smoothstep(0.52, 0.83, height) * (1.0 - smoothstep(1.15, 1.31, height))
+		return 1.03 + 0.72 * body
+	if part_name.begins_with("Arm"):
+		return lerpf(1.62, 1.2, smoothstep(0.78, 1.08, height))
+	return lerpf(1.04, 1.27, smoothstep(0.08, 0.28, height))
 
 # The source silhouette has disconnected neck and bodice rings. Join them with
 # a closed fabric insert attached to the torso so it follows the crouch pose.
