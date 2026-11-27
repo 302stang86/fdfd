@@ -485,15 +485,15 @@ func _physics_process(delta: float) -> void:
 	var was_jump_held := jump_held
 	jump_held = Input.is_physical_key_pressed(KEY_SPACE)
 	if touch != null:
-		var move: Vector2 = touch.sticks["move"]
-		var look: Vector2 = touch.sticks["look"]
+		var move: Vector2 = touch.move
+		var look: Vector2 = touch.take_look_delta()
 		direction = Vector3(move.x, 0.0, move.y)
-		player.rotate_y(-look.x * 2.5 * delta)
-		camera.rotation.x = clampf(camera.rotation.x - look.y * 1.85 * delta, -1.45, 1.45)
+		player.rotate_y(-look.x * LOOK)
+		camera.rotation.x = clampf(camera.rotation.x - look.y * LOOK, -1.45, 1.45)
 		jump_held = touch.held("JUMP")
-		if touch.consume("FIRE"):
+		if touch.firing():
 			fire_requested = true
-		if touch.consume("USE"):
+		if touch.consume("DOOR"):
 			var door := nearest_door()
 			if door != null:
 				door.toggle_door()
@@ -878,13 +878,14 @@ func update_hud() -> void:
 		summary = "%d:%02d   |   Hits: %d – %d" % [floori(seconds / 60.0), seconds % 60, team_hits[0], team_hits[1]]
 	var controls := "WASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   M menu"
 	if mobile_mode:
-		controls = "Left stick: move    Right stick: look"
+		controls = "Left stick: move    Drag right side: look"
+		touch.set_door_available(nearest_door() != null)
 		if player.climbing:
 			message = "Move stick up/down to climb. Jump to let go."
 		elif player.near_ladder:
 			message = "Face the ladder and move forward."
 		elif nearest_door() != null:
-			message = "Tap USE to open or close the door."
+			message = "Tap DOOR to open or close."
 	hud.text = "%s   |   %s\n%s\n%s" % [status, summary, controls, message]
 
 func urban_footprint() -> PackedVector2Array:
