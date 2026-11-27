@@ -30,6 +30,18 @@ class BotState:
 	var destination := Vector3.INF
 	var patrol := Vector3.ZERO
 	var flank := 1.0
+	var burst_left := 0
+	var cover := Vector3.INF
+	var peek := Vector3.INF
+	var cover_focus := Vector3.INF
+	var cover_refresh := 0.0
+	var hide_left := 0.0
+	var camp_anchor := Vector3.INF
+	var camp_time := 0.0
+	var action := "patrol"
+	var visible_count := 0
+	var flank_goal := Vector3.INF
+	var flank_focus := Vector3.INF
 
 var states: Dictionary = {}
 var team_reports: Dictionary = {}
@@ -117,13 +129,15 @@ func remove(bot: CharacterBody3D) -> void:
 func heard(source_team: int, point: Vector3, radius: float) -> void:
 	for bot in states:
 		var bot_state: BotState = states[bot]
-		if bot_state.team != source_team and bot.position.distance_to(point) < radius and not is_instance_valid(bot_state.target):
+		if bot_state.team != source_team and bot.position.distance_to(point) < radius and not is_instance_valid(bot_state.target) and bot_state.memory_left <= 1.2:
 			bot_state.memory = point
-			bot_state.memory_left = 4.0
+			bot_state.memory_left = 2.8
 
 func hit(bot: CharacterBody3D, from: Vector3) -> void:
 	var bot_state: BotState = states[bot]
 	bot_state.last_threat = from
+	bot_state.cover_refresh = 0.0
+	bot_state.hide_left = 0.9
 	bot_state.memory = from
 	bot_state.memory_left = 4.0
 	bot_state.reposition_left = 2.4 if bot_state.role != Role.WILDCARD else 1.0
@@ -138,7 +152,7 @@ func update(delta: float) -> void:
 			team_reports.erase(team)
 	step_timer -= delta
 	if step_timer <= 0.0 and arena.player.is_on_floor() and Vector2(arena.player.velocity.x, arena.player.velocity.z).length() > 0.5:
-		heard(0, arena.player.position, 3.0 if arena.crouched else 9.0)
+		heard(0, arena.player.position, 3.0 if arena.crouched else clampf(Vector2(arena.player.velocity.x, arena.player.velocity.z).length() * 2.1, 5.0, 13.0))
 		step_timer = 0.35
 	for bot in states:
 		tick_bot(bot, states[bot], delta)
@@ -149,6 +163,8 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	state.reposition_left -= delta
 	state.reaction_left -= delta
 	state.shot_left -= delta
+	state.cover_refresh -= delta
+	state.hide_left -= delta
 	if state.reload_left > 0.0:
 		state.reload_left = maxf(0.0, state.reload_left - delta)
 		if state.reload_left == 0.0:
@@ -156,60 +172,121 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	if state.think_left <= 0.0:
 		state.think_left = THINK_INTERVAL[difficulty]
 		think(bot, state)
-	if is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
+	var hiding := state.action == "retreat" or (state.action == "cover" and (state.hide_left > 0.0 or state.reload_left > 0.0))
+	var under_cover := hiding and bot.position.distance_to(state.cover) < 1.05
+	arena.set_bot_crouch(bot, under_cover)
+	if not under_cover and is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
 		fire(bot, state)
-	arena.set_bot_crouch(bot, state.reload_left > 0.0 or state.reposition_left > 0.0 and state.role == Role.GUARD)
 	follow_path(bot, state, delta)
 
 func think(bot: CharacterBody3D, state: BotState) -> void:
 	var target := visible_target(bot, state)
 	if target != state.target:
-		state.reaction_left = REACTION[difficulty]
-	state.target = target
-	if is_instance_valid(target):
+		state.reaction_left = REACTION[difficulty] * randf_range(0.8, 1.3)
+		state.burst_left = 0
+		state.target = target
+	var visible := is_instance_valid(target)
+	if visible:
 		state.memory = target.position
 		state.memory_left = 5.0
+		if state.memory.distance_to(state.camp_anchor) > 1.9:
+			state.camp_anchor = state.memory
+			state.camp_time = 0.0
+		else:
+			state.camp_time += THINK_INTERVAL[difficulty]
 		if randf() <= SHARE_CHANCE[difficulty]:
-			team_reports[state.team] = {"point": state.memory, "remaining": 3.0}
-	elif state.memory_left <= 0.0 and team_reports.has(state.team):
-		state.memory = team_reports[state.team]["point"]
-		state.memory_left = 2.5
-
-	var informed := state.memory_left > 0.0
-	var focus := state.memory if informed else state.patrol
+			team_reports[state.team] = {"point": state.memory, "remaining": 3.0, "observer": bot}
+	elif team_reports.has(state.team):
+		var report: Dictionary = team_reports[state.team]
+		var observer := report.get("observer") as CharacterBody3D
+		if is_instance_valid(observer) and observer != bot and bot.position.distance_to(observer.position) < 26.0:
+			state.memory = report["point"]
+			state.memory_left = maxf(state.memory_left, float(report["remaining"]))
+	if state.memory_left <= 0.0:
+		state.camp_time = 0.0
+		state.camp_anchor = Vector3.INF
+		state.action = "patrol"
+		if bot.position.distance_to(state.patrol) < 1.4:
+			state.patrol = Vector3(randf_range(-17, 17), 0.1, randf_range(-15, 15))
+		var patrol := state.patrol
+		if state.role == Role.MARKSMAN and not high_ground.is_empty():
+			patrol = elevated_position(bot, state, patrol)
+		set_destination(bot, state, patrol)
+		return
+	var focus := state.memory
 	var away := Vector3(bot.position.x - focus.x, 0, bot.position.z - focus.z).normalized()
+	if away.is_zero_approx():
+		away = Vector3.FORWARD
+	var previous := state.action
+	state.action = choose_action(bot, state, visible)
 	var destination := focus
-	var wounded := int(bot.get_meta("health")) <= 1
-	var has_enemy := is_instance_valid(target)
-	if not informed and bot.position.distance_to(focus) < 1.4:
-		state.patrol = Vector3(randf_range(-17, 17), 0.1, randf_range(-15, 15))
-		destination = state.patrol
-	if state.role == Role.MARKSMAN and not high_ground.is_empty():
-		destination = elevated_position(bot, state, focus)
-	elif (state.reposition_left > 0.0 and state.role != Role.RUSHER) or state.reload_left > 0.0:
-		var threat := state.last_threat if state.reposition_left > 0.0 else focus
-		destination = cover_position(bot, threat)
-	elif informed:
-		match state.role:
-			Role.RUSHER:
-				destination = focus + away * (8.0 if wounded and state.reposition_left > 0.0 else 5.0)
-			Role.FLANKER:
-				if has_enemy and bot.position.distance_to(focus) < 7.0:
-					destination = bot.position
-				else:
-					destination = focus + away.rotated(Vector3.UP, state.flank * 1.25) * 8.0
-			Role.GUARD:
-				if has_enemy and not wounded and bot.position.distance_to(focus) <= 14.0:
-					destination = bot.position
-				elif wounded:
-					destination = cover_position(bot, focus)
-				else:
-					destination = focus + away * STANDOFF[state.role]
-			Role.WILDCARD:
-				destination = focus + away.rotated(Vector3.UP, state.flank * 0.65) * (7.0 if wounded else 11.0)
-			_:
+	match state.action:
+		"search":
+			if bot.position.distance_to(focus) < 1.2:
+				destination = focus + away.rotated(Vector3.UP, state.flank * 1.3) * 3.0
+		"retreat", "cover":
+			var retreat := state.action == "retreat"
+			if previous != state.action or state.cover_refresh <= 0.0 or state.cover_focus.distance_to(focus) > 3.5:
+				var positions := cover_position(bot, focus, retreat)
+				state.cover = positions[0]
+				state.peek = positions[1]
+				state.cover_focus = focus
+				state.cover_refresh = 1.65
+				if previous != state.action:
+					state.hide_left = 0.7
+			destination = state.cover
+			if not retreat and state.reload_left <= 0.0 and state.hide_left <= 0.0 and state.peek.is_finite():
+				destination = state.peek
+			if not destination.is_finite():
+				destination = focus + away * (bot.position.distance_to(focus) + 5.0)
+		"flank":
+			if previous != state.action or state.flank_focus.distance_to(focus) > 3.5:
+				state.flank_goal = focus + away.rotated(Vector3.UP, state.flank * 1.12) * STANDOFF[state.role]
+				state.flank_focus = focus
+			destination = state.flank_goal
+			if bot.position.distance_to(destination) < 1.6:
+				state.action = "engage"
+				state.camp_time = 0.0
+				destination = bot.position
+		"engage":
+			if state.role == Role.MARKSMAN and not high_ground.is_empty():
+				destination = elevated_position(bot, state, focus)
+			elif bot.position.distance_to(focus) <= STANDOFF[state.role] + 3.5:
+				destination = bot.position
+			else:
 				destination = focus + away * STANDOFF[state.role]
 	set_destination(bot, state, destination)
+
+func choose_action(bot: CharacterBody3D, state: BotState, visible: bool) -> String:
+	var allies := 0
+	var threats := {}
+	if visible:
+		threats[state.target] = true
+	for teammate in states:
+		var other: BotState = states[teammate]
+		if teammate == bot or other.team != state.team or bot.position.distance_to(teammate.position) > 16.0:
+			continue
+		allies += 1
+		if is_instance_valid(other.target):
+			threats[other.target] = true
+	var wounded := int(bot.get_meta("health")) <= 2
+	var pressure := maxi(0, maxi(state.visible_count, threats.size()) - allies - 1)
+	var camper := clampf(state.camp_time / 4.0, 0.0, 1.0)
+	var scores := {
+		"search": 2.5 if not visible else -1.0,
+		"engage": 3.6 if visible else 0.0,
+		"flank": (3.35 if state.role == Role.FLANKER else 1.2) + camper * 4.0 + minf(allies, 2) * 0.4,
+		"cover": 0.65 + (6.0 if state.reload_left > 0.0 else 0.0) + (4.0 if state.reposition_left > 0.0 else 0.0),
+		"retreat": (4.8 if wounded and (state.reposition_left > -2.0 or state.visible_count > 1) else 0.0) + pressure * 2.6,
+	}
+	var best := "search"
+	var highest := -INF
+	for action in scores:
+		var score: float = scores[action] + (0.35 if action == state.action else 0.0)
+		if score > highest:
+			best = action
+			highest = score
+	return best
 
 func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 	var candidates: Array = arena.bots.duplicate()
@@ -217,6 +294,7 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 		candidates.append(arena.player)
 	var best: CharacterBody3D
 	var best_distance := 31.0
+	state.visible_count = 0
 	var origin := bot.position + Vector3.UP * (0.78 if bot.get_meta("crouched") else 1.22)
 	for candidate in candidates:
 		if candidate == bot or int(candidate.get_meta("team", 0)) == state.team:
@@ -224,7 +302,7 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 		var end: Vector3 = candidate.position + Vector3.UP * (0.72 if (arena.crouched if candidate == arena.player else candidate.get_meta("crouched", false)) else 1.12)
 		var difference := end - origin
 		var distance := difference.length()
-		if distance >= best_distance:
+		if distance >= 31.0:
 			continue
 		if candidate == arena.player and arena.player.get("hiding") and distance > 5.0:
 			continue # hiding inside a prop: only spotted from close range
@@ -232,8 +310,10 @@ func visible_target(bot: CharacterBody3D, state: BotState) -> CharacterBody3D:
 			continue
 		var hit: Dictionary = arena.trace(origin, end, bot.get_rid())
 		if hit.get("collider") == candidate:
-			best = candidate
-			best_distance = distance
+			state.visible_count += 1
+			if distance < best_distance:
+				best = candidate
+				best_distance = distance
 	return best
 
 func elevated_position(bot: CharacterBody3D, state: BotState, focus: Vector3) -> Vector3:
@@ -257,25 +337,44 @@ func elevated_position(bot: CharacterBody3D, state: BotState, focus: Vector3) ->
 			best_score = score
 	return best
 
-func cover_position(bot: CharacterBody3D, threat: Vector3) -> Vector3:
+func cover_position(bot: CharacterBody3D, threat: Vector3, retreat: bool) -> PackedVector3Array:
 	var origin := threat + Vector3.UP * 1.14
-	var best := bot.position
+	var best := Vector3.INF
+	var best_peek := Vector3.INF
 	var best_score := -INF
 	var nav_map := nav_region.get_navigation_map()
 	for index in range(12):
 		var direction := Vector3.FORWARD.rotated(Vector3.UP, index * TAU / 12.0)
-		var point := NavigationServer3D.map_get_closest_point(nav_map, bot.position + direction * 5.0)
+		var point := NavigationServer3D.map_get_closest_point(nav_map, bot.position + direction * (3.2 if index % 2 == 0 else 6.0))
 		var distance := bot.position.distance_to(point)
-		if distance < 1.0 or distance > 9.0 or absf(point.y - bot.position.y) > 0.8:
+		if distance > 9.0 or absf(point.y - bot.position.y) > 0.8:
 			continue
-		var hit: Dictionary = arena.trace(origin, point + Vector3.UP * 0.85, bot.get_rid())
-		var score := point.distance_to(threat) * 0.3 - distance * 0.1
-		if hit.get("collider") is StaticBody3D:
-			score += 9.0
+		var hit: Dictionary = arena.trace(point + Vector3.UP * 0.78, origin, bot.get_rid())
+		if not hit.get("collider") is StaticBody3D:
+			continue
+		var path := NavigationServer3D.map_get_path(nav_map, bot.position, point, true)
+		if path.is_empty() or path[-1].distance_to(point) > 0.75:
+			continue
+		var side := Vector3(point.z - threat.z, 0, threat.x - point.x).normalized()
+		var peek := Vector3.INF
+		for sign_value in [-1.0, 1.0]:
+			var open_point := NavigationServer3D.map_get_closest_point(nav_map, point + side * sign_value * 1.55)
+			if open_point.distance_to(point) > 2.0 or absf(open_point.y - point.y) > 0.5:
+				continue
+			var lane: Dictionary = arena.trace(open_point + Vector3.UP * 1.22, origin, bot.get_rid())
+			if not lane.get("collider") is StaticBody3D:
+				var peek_path := NavigationServer3D.map_get_path(nav_map, point, open_point, true)
+				if not peek_path.is_empty() and peek_path[-1].distance_to(open_point) < 0.6:
+					peek = open_point
+					break
+		var score := (point.distance_to(threat) - bot.position.distance_to(threat)) * (0.7 if retreat else 0.18) - distance * 0.45
+		if peek.is_finite():
+			score += 0.8 if retreat else 3.8
 		if score > best_score:
 			best = point
+			best_peek = peek
 			best_score = score
-	return best
+	return PackedVector3Array([best, best_peek])
 
 func set_destination(bot: CharacterBody3D, state: BotState, destination: Vector3) -> void:
 	if bot.position.distance_to(destination) < 0.75:
@@ -297,9 +396,9 @@ func follow_path(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 			break
 		state.path_index += 1
 	if is_instance_valid(state.target):
-		var face := state.target.position - bot.position
+		var face := state.memory - bot.position
 		face.y = 0
-		state.facing = face.normalized()
+		state.facing = state.facing.lerp(face.normalized(), clampf(delta * 8.0, 0.0, 1.0)).normalized()
 	elif not travel.is_zero_approx():
 		state.facing = travel
 	var speed := 1.7 if bot.get_meta("crouched") else (3.35 if state.role == Role.RUSHER else 2.7)
@@ -324,7 +423,12 @@ func fire(bot: CharacterBody3D, state: BotState) -> void:
 	var spread: float = AIM_SPREAD[difficulty] * maxf(4.0, distance) * (1.18 if state.target.velocity.length() > 1.0 else 0.83)
 	var offset := Vector3(randfn(0.0, spread), randfn(0.0, spread * 0.66), randfn(0.0, spread))
 	arena.launch_paintball(origin, aim + offset, bot.get_rid(), state.team, state.marker)
-	state.shot_left = maxf(float(arena.SHOT_INTERVALS[state.marker]), 0.53) * randf_range(1.08, 1.45)
+	if state.burst_left <= 0:
+		state.burst_left = randi_range(2, 4) if state.marker == 0 else 1
+	state.burst_left -= 1
+	state.shot_left = maxf(float(arena.SHOT_INTERVALS[state.marker]), 0.22) * randf_range(1.04, 1.32)
+	if state.burst_left == 0:
+		state.shot_left += randf_range(0.45, 0.88)
 	state.ammo -= 1
 	if state.ammo == 0:
 		state.reload_left = arena.RELOAD_TIMES[state.marker]
