@@ -159,14 +159,7 @@ func build(arena: Node3D) -> void:
 
 func scene_for(name: String) -> PackedScene:
 	if not scenes.has(name):
-		if EDITOR_PARTS.LABELS.has(name):
-		node = EDITOR_PARTS.build(name)
-		node.position = Vector3(at.x, 0.0, at.y)
-		node.rotation.y = yaw
-		arena.add_child(node)
-		if name.ends_with("_tile"):
-			node.set_meta("keep_radius", 0.0)
-	elif CLIMB.has(name):
+		if CLIMB.has(name):
 			scenes[name] = load("res://assets/models/climb/%s.glb" % name) as PackedScene
 			return scenes[name]
 		if ENTER.has(name):
@@ -181,7 +174,14 @@ func scene_for(name: String) -> PackedScene:
 # and `scl` scales it uniformly.
 func place(arena: Node3D, name: String, at: Vector2, yaw: float, height: float = 0.0, scl: float = 1.0) -> Node3D:
 	var node: Node3D
-	if CLIMB.has(name):
+	if EDITOR_PARTS.LABELS.has(name):
+		node = EDITOR_PARTS.build(name)
+		node.position = Vector3(at.x, 0.0, at.y)
+		node.rotation.y = yaw
+		arena.add_child(node)
+		if name.ends_with("_tile"):
+			node.set_meta("keep_radius", 0.0)
+	elif CLIMB.has(name):
 		node = place_climbable(arena, name, at, yaw)
 	elif ENTER.has(name):
 		node = place_enterable(arena, name, at, yaw)
@@ -237,7 +237,7 @@ func place_cell(arena: Node3D, cell: Vector2, value) -> void:
 		id = parts[0]
 		if parts.size() > 1 and parts[1].is_valid_float():
 			yaw = deg_to_rad(parts[1].to_float())
-	if not DIMS.has(id) and not CLIMB.has(id) and not ENTER.has(id):
+	if not DIMS.has(id) and not CLIMB.has(id) and not ENTER.has(id) and not EDITOR_PARTS.LABELS.has(id):
 		id = "crate"
 	place(arena, id, cell, yaw)
 
