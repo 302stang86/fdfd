@@ -1,5 +1,7 @@
 extends VBoxContainer
 
+signal account_changed(account_email: String)
+
 const BROWSER_CLIENT := """
 
 (() => {
@@ -158,6 +160,7 @@ var create_room: Button
 var join_room: Button
 var leave: Button
 var poll_left := 0.0
+var account_email := ""
 
 func _ready() -> void:
 	status = Label.new()
@@ -218,8 +221,6 @@ func request_room(action: String, first: String, second: String) -> void:
 	update_room_ui()
 
 func _process(delta: float) -> void:
-	if not is_visible_in_tree():
-		return
 	poll_left -= delta
 	if poll_left <= 0.0:
 		poll_left = 0.25
@@ -233,7 +234,11 @@ func update_room_ui() -> void:
 	var state = JSON.parse_string(str(client.read()))
 	if not state is Dictionary:
 		return
-	var signed_in := not String(state.email).is_empty()
+	var current_email := String(state.email)
+	if current_email != account_email:
+		account_email = current_email
+		account_changed.emit(account_email)
+	var signed_in := not account_email.is_empty()
 	var in_room := not String(state.code).is_empty()
 	var busy := bool(state.busy)
 	status.text = "Contacting Firebase…" if busy else String(state.status)
