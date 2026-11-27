@@ -223,7 +223,7 @@ func install_theme() -> void:
 	theme.default_font_size = 16
 	for type_id in ["Button", "OptionButton"]:
 		for state in ["normal", "hover", "pressed", "focus"]:
-			var highlight := state == "pressed" or state == "focus"
+			var highlight: bool = state == "pressed" or state == "focus"
 			var fill := Color("#373a7c") if state != "normal" else Color("#252b62")
 			theme.set_stylebox(state, type_id, panel_style(fill, Color("#8d99ef") if highlight else Color("#454778")))
 
@@ -361,6 +361,24 @@ func build_stage() -> void:
 	rim.light_color = Color("#6de1ff")
 	rim.light_energy = 0.7
 	scene_root.add_child(rim)
+	var ground := MeshInstance3D.new()
+	var floor_mesh := PlaneMesh.new()
+	floor_mesh.size = Vector2(28, 24)
+	var floor_material := StandardMaterial3D.new()
+	floor_material.albedo_color = Color("#292b47")
+	floor_material.roughness = 0.94
+	floor_mesh.material = floor_material
+	ground.mesh = floor_mesh
+	ground.position.y = -0.14
+	scene_root.add_child(ground)
+	var warehouse: Node3D = preload("res://assets/opengameart/industrial/building-a.glb").instantiate()
+	warehouse.position = Vector3(0.1, -0.14, -3.5)
+	warehouse.scale = Vector3(2.5, 1.7, 1.5)
+	scene_root.add_child(warehouse)
+	var cover: Node3D = preload("res://assets/opengameart/industrial/shipping-container-b.glb").instantiate()
+	cover.position = Vector3(-1.45, -0.14, -0.9)
+	cover.rotation.y = 0.5
+	scene_root.add_child(cover)
 	var plinth := MeshInstance3D.new()
 	var disc := CylinderMesh.new()
 	disc.top_radius = 0.62
