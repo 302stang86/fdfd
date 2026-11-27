@@ -201,16 +201,21 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	var hiding := state.action == "retreat" or (state.action == "cover" and (state.hide_left > 0.0 or state.reload_left > 0.0))
 	var kind: String = state.tactic.get("kind", "")
 	var position: Vector3 = state.tactic.get("point", Vector3.INF)
-	if kind == "climb" and bot.position.distance_to(position) < 0.7:
+	if kind == "climb" and bot.position.distance_to(position) < 0.80:
 		state.climbing = true
 		state.climb_left = 2.5
 		bot.set_meta("tactical_hidden", false)
 		arena.set_bot_crouch(bot, false)
 		tick_climb(bot, state, delta)
 		return
-	var concealed := kind == "hide" and bot.position.distance_to(position) < 0.66
+	var concealed := kind == "hide" and bot.position.distance_to(position) < 0.80
 	if concealed and not bot.get_meta("tactical_hidden", false):
 		state.hide_hold = 3.5
+		state.path.clear()
+		var toward_threat := state.memory - bot.position
+		toward_threat.y = 0.0
+		if not toward_threat.is_zero_approx():
+			state.facing = toward_threat.normalized()
 	if concealed and state.hide_hold <= 0.0:
 		concealed = false
 		state.tactic.clear()
@@ -218,7 +223,11 @@ func tick_bot(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 	bot.set_meta("tactical_hidden", concealed)
 	var under_cover := concealed or (hiding and bot.position.distance_to(state.cover) < 1.05)
 	arena.set_bot_crouch(bot, under_cover)
-	var ambush := concealed and is_instance_valid(state.target) and state.target.position.distance_to(bot.position) < 9.0
+	var ambush := false
+	if concealed and is_instance_valid(state.target):
+		var offset := state.target.position - bot.position
+		offset.y = 0.0
+		ambush = offset.length() < 9.0 and state.facing.dot(offset.normalized()) >= 0.55
 	if (not under_cover or ambush) and is_instance_valid(state.target) and state.shot_left <= 0.0 and state.reaction_left <= 0.0 and state.reload_left <= 0.0:
 		var ammo_before := state.ammo
 		fire(bot, state)
@@ -487,7 +496,7 @@ func follow_path(bot: CharacterBody3D, state: BotState, delta: float) -> void:
 			travel = offset.normalized()
 			break
 		state.path_index += 1
-	if is_instance_valid(state.target):
+	if is_instance_valid(state.target) and not bot.get_meta("tactical_hidden", false):
 		var face := state.memory - bot.position
 		face.y = 0
 		state.facing = state.facing.lerp(face.normalized(), clampf(delta * 8.0, 0.0, 1.0)).normalized()
