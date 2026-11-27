@@ -18,6 +18,7 @@ const URBAN_BORDER := preload("res://urban_border.gd")
 const BUILDING_MODELS: Array[PackedScene] = [
 	preload("res://assets/models/building_brick.glb"),
 	preload("res://assets/models/building_boarded.glb"),
+	preload("res://assets/opengameart/industrial/warehouse_facade.tscn"),
 ]
 const CHAIN_LINK_MODELS: Array[PackedScene] = [preload("res://assets/models/chain_link_fence.glb")]
 const WOOD_FENCE_MODELS: Array[PackedScene] = [preload("res://assets/models/wood_fence.glb")]
@@ -34,6 +35,15 @@ const SPLAT_SECONDS := 4.0
 const CROSSHAIR := preload("res://crosshair.gd")
 const PLAYER_PAINT := Color("#278cff")
 const BOT_PAINT := Color("#fa4eaa")
+const SHOT_SOUNDS: Array[AudioStream] = [
+	preload("res://assets/opengameart/audio/sks.wav"),
+	preload("res://assets/opengameart/audio/mosin.wav"),
+	preload("res://assets/opengameart/audio/shotty.wav"),
+]
+const CONTAINER_COVER: Array[PackedScene] = [
+	preload("res://assets/opengameart/industrial/shipping-container-a.glb"),
+	preload("res://assets/opengameart/industrial/shipping-container-b.glb"),
+]
 const MARKER_VIEW := preload("res://marker_view.gd")
 const PROJECTILE_SPEEDS := [48.0, 66.0, 29.0]
 
@@ -830,8 +840,17 @@ func build_urban_arena() -> void:
 	STREET_PROPS.new().build(self)
 
 func build_field_day() -> void:
-	for point in [Vector3(-4, 0.6, 13), Vector3(5, 0.6, 8), Vector3(-6, 0.6, -12), Vector3(7, 0.6, -14)]:
-		box(point, Vector3(2, 1.2, 2), Color("#647984"))
+	var cover_points := [Vector3(-4, 0.6, 13), Vector3(5, 0.6, 8), Vector3(-6, 0.6, -12), Vector3(7, 0.6, -14)]
+	var cover_size := Vector3(2, 1.2, 2)
+	# Dimensions from the imported GLB, including its authored node scale.
+	var container_size := Vector3(1.38, 1.289185, 3.046667) * 0.27
+	for index in range(cover_points.size()):
+		var cover := box(cover_points[index], cover_size, Color.WHITE, self, true, false)
+		var display := Node3D.new()
+		display.position.y = -cover_size.y * 0.5
+		display.scale = cover_size / container_size
+		cover.add_child(display)
+		display.add_child(CONTAINER_COVER[index % CONTAINER_COVER.size()].instantiate())
 
 	var building := Color("#695943")
 	box(Vector3(0, 1.95, -4), Vector3(8, 0.1, 6), building)
@@ -854,18 +873,8 @@ func build_field_day() -> void:
 
 
 func create_shot_audio() -> void:
-	var clip := AudioStreamWAV.new()
-	clip.format = AudioStreamWAV.FORMAT_16_BITS
-	clip.mix_rate = 22050
-	var samples := PackedByteArray()
-	var length := 1100
-	samples.resize(length * 2)
-	for frame in range(length):
-		var fade := 1.0 - float(frame) / float(length)
-		var click := sin(float(frame) * (0.21 - marker_id * 0.04))
-		var sample := (click * 0.6 + randf_range(-0.4, 0.4)) * fade * fade
-		samples.encode_s16(frame * 2, int(sample * 14000))
-	clip.data = samples
 	shot_audio = AudioStreamPlayer.new()
-	shot_audio.stream = clip
+	shot_audio.stream = SHOT_SOUNDS[marker_id]
+	shot_audio.volume_db = -13.0
+	shot_audio.max_polyphony = 3
 	add_child(shot_audio)

@@ -1,0 +1,14 @@
+newmtl Material.001
+Kd 0.20 0.22 0.17
+Ks 0.14 0.14 0.14
+Ns 35
+
+newmtl Material.002
+Kd 0.16 0.18 0.20
+Ks 0.14 0.14 0.14
+Ns 35
+
+newmtl Material.003
+Kd 0.29 0.18 0.10
+Ks 0.14 0.14 0.14
+Ns 35

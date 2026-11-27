@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://assets/opengameart/industrial/building-a.glb" id="1"]
+
+[node name="WarehouseFacade" type="Node3D"]
+
+[node name="Display" type="Node3D" parent="."]
+rotation = Vector3(0, 1.5707964, 0)
+scale = Vector3(2.879, 2.381, 1.248)
+
+[node name="Warehouse" parent="Display" instance=ExtResource("1")]
