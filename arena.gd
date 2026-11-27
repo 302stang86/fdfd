@@ -392,8 +392,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			update_hud()
 		if event.keycode == KEY_ENTER and outcome != "":
 			start_match()
-		if event.keycode == KEY_R and countdown_left <= 0.0 and reload <= 0 and ammo < magazine_size() and outcome == "":
-			reload = 0.01 if cheats.get("fast_reload", false) else RELOAD_TIMES[marker_id]
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -445,8 +443,6 @@ func _physics_process(delta: float) -> void:
 		jump_held = touch.held("JUMP")
 		if touch.consume("FIRE"):
 			fire_requested = true
-		if touch.consume("RELOAD") and reload <= 0 and ammo < magazine_size():
-			reload = 0.01 if cheats.get("fast_reload", false) else RELOAD_TIMES[marker_id]
 		if touch.consume("USE"):
 			var door := nearest_door()
 			if door != null:
@@ -547,6 +543,8 @@ func shoot() -> void:
 		return
 	if not cheats.get("infinite_ammo", false):
 		ammo -= 1
+		if ammo == 0:
+			reload = 0.01 if cheats.get("fast_reload", false) else RELOAD_TIMES[marker_id]
 	cooldown = SHOT_INTERVALS[marker_id]
 	shot_audio.play()
 	marker_view.punch()
@@ -815,7 +813,7 @@ func update_hud() -> void:
 	if timed_match:
 		var seconds := ceili(time_left)
 		summary = "%d:%02d   |   Hits: %d – %d" % [floori(seconds / 60.0), seconds % 60, team_hits[0], team_hits[1]]
-	var controls := "WASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   R reload   M menu"
+	var controls := "WASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   M menu"
 	if mobile_mode:
 		controls = "Left stick: move    Right stick: look"
 		if player.climbing:

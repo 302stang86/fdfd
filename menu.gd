@@ -125,7 +125,7 @@ func _ready() -> void:
 	add_button("Create a map", open_editor)
 	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, hold right-click to steady the marker, and press R to reload. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, reloading, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
+		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire and hold right-click to steady the marker. Your marker reloads automatically when empty. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()

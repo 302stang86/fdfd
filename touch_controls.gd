@@ -1,7 +1,7 @@
 extends Control
 
 const RADIUS := 49.0
-const ACTION_NAMES := ["FIRE", "AIM", "CROUCH", "JUMP", "RELOAD", "USE", "MENU"]
+const ACTION_NAMES := ["FIRE", "AIM", "CROUCH", "JUMP", "USE", "MENU"]
 
 var fingers := {}
 var sticks := {"move": Vector2.ZERO, "look": Vector2.ZERO}
@@ -13,9 +13,9 @@ func _ready() -> void:
 
 func button_center(index: int) -> Vector2:
 	var locations := [Vector2(-153, -58), Vector2(-73, -187), Vector2(-149, -118),
-		Vector2(-74, -250), Vector2(-157, -180), Vector2(-157, -243), Vector2(-48, 50)]
+		Vector2(-74, -250), Vector2(-157, -243), Vector2(-48, 50)]
 	var offset: Vector2 = locations[index]
-	return Vector2(size.x + offset.x, offset.y if index == 6 else size.y + offset.y)
+	return Vector2(size.x + offset.x, offset.y if ACTION_NAMES[index] == "MENU" else size.y + offset.y)
 
 func stick_center(name: String) -> Vector2:
 	return Vector2(84 if name == "move" else size.x - 67, size.y - 73)
