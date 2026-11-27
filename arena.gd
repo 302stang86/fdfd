@@ -231,6 +231,8 @@ func _ready() -> void:
 	create_loss_popup(overlay)
 	bot_ai = BOT_AI.new(self, difficulty)
 	bot_ai.bake_map()
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 	start_match()
 	if not mobile_mode and not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -313,7 +315,66 @@ func clear_paintballs() -> void:
 		ball.mesh.queue_free()
 	paintballs.clear()
 
+func random_spawn_positions(enemy_count: int, ally_count: int) -> Array[Vector3]:
+	var nav_map := bot_ai.nav_region.get_navigation_map()
+	var outline := urban_footprint() if map_id == URBAN_MAP else PackedVector2Array()
+	var candidates: Array[Vector3] = []
+	var clearance := BoxShape3D.new()
+	clearance.size = Vector3(1.7, 1.65, 1.7)
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = clearance
+	var excluded: Array[RID] = [player.get_rid()]
+	for bot in bots:
+		excluded.append(bot.get_rid())
+	query.exclude = excluded
+	var space := get_world_3d().direct_space_state
+	for x in range(-44, 45, 4):
+		for z in range(-44, 45, 4):
+			var sample := Vector3(x + randf_range(-1.3, 1.3), 0.0, z + randf_range(-1.3, 1.3))
+			var floor_point := NavigationServer3D.map_get_closest_point(nav_map, sample)
+			if floor_point.distance_to(sample) > 1.4 or absf(floor_point.y) > 0.65:
+				continue
+			if not outline.is_empty() and not Geometry2D.is_point_in_polygon(Vector2(floor_point.x, floor_point.z), outline):
+				continue
+			query.transform = Transform3D(Basis.IDENTITY, floor_point + Vector3.UP * 0.99)
+			if space.intersect_shape(query, 1).is_empty():
+				candidates.append(floor_point + Vector3.UP * 0.09)
+	if candidates.size() < enemy_count + ally_count + 1:
+		push_warning("Not enough clear spawn points to start the match.")
+		return []
+	candidates.shuffle()
+	var positions: Array[Vector3] = [candidates.pop_back()]
+	for index in range(enemy_count + ally_count):
+		var best_index := 0
+		var best_score := -INF
+		for candidate_index in range(candidates.size()):
+			var point := candidates[candidate_index]
+			var nearest := INF
+			for used in positions:
+				nearest = minf(nearest, point.distance_to(used))
+			var player_distance := point.distance_to(positions[0])
+			var score := nearest + randf_range(0.0, 2.0)
+			if index < enemy_count:
+				score += minf(player_distance, 52.0) * 0.42
+				if player_distance < 27.0:
+					score -= 95.0
+			else:
+				for enemy_index in range(1, enemy_count + 1):
+					if point.distance_to(positions[enemy_index]) < 25.0:
+						score -= 32.0
+			if score > best_score:
+				best_score = score
+				best_index = candidate_index
+		positions.append(candidates.pop_at(best_index))
+	return positions
+
 func start_match() -> void:
+	var enemy_count := 6 if six_vs_six else (3 if team_match else 5)
+	var ally_count := enemy_count - 1 if team_match else 0
+	var locations := random_spawn_positions(enemy_count, ally_count)
+	if locations.is_empty():
+		show_match_result("This arena needs more open space to spawn all players.")
+		return
 	clear_paintballs()
 	for mark in arena_splats.get_children():
 		mark.queue_free()
@@ -321,41 +382,19 @@ func start_match() -> void:
 		bot.queue_free()
 	bots.clear()
 	bot_ai.reset()
-	var locations := [
-		Vector3(-30, 0.1, -30), Vector3(30, 0.1, -30), Vector3(0, 0.1, -37),
-		Vector3(-32, 0.1, 8), Vector3(32, 0.1, -8)
-	]
-	if map_id == URBAN_MAP:
-		locations = [
-			Vector3(-21, 0.1, -23), Vector3(21, 0.1, -22), Vector3(11, 0.1, -30),
-			Vector3(-24, 0.1, 15), Vector3(22, 0.1, 16)
-		]
-	if team_match:
-		locations[3] = Vector3(-12, 0.1, 33)
-		locations[4] = Vector3(12, 0.1, 33)
-		if map_id == URBAN_MAP:
-			locations[3] = Vector3(-10, 0.1, 25)
-			locations[4] = Vector3(10, 0.1, 25)
-	var enemy_count := 3 if team_match else 5
-	if six_vs_six:
-		enemy_count = 6
-		locations = [
-			Vector3(-21, 0.1, -23), Vector3(21, 0.1, -22), Vector3(11, 0.1, -30),
-			Vector3(-15, 0.1, -28), Vector3(7, 0.1, -22), Vector3(24, 0.1, -12),
-			spawn + Vector3(-10, 0, -6), spawn + Vector3(10, 0, -6),
-			spawn + Vector3(-5, 0, -3), spawn + Vector3(5, 0, -3), spawn + Vector3(0, 0, -8)
-		]
+	spawn = locations[0]
 	var skins := [0, 1, 2, 3, 4, 5, 6, 7]
 	skins.shuffle()
-	for index in range(locations.size()):
+	for index in range(locations.size() - 1):
 		var team := 0 if index >= enemy_count else 1
-		var bot := actor(locations[index], true, team, skins[index % skins.size()])
+		var bot := actor(locations[index + 1], true, team, skins[index % skins.size()])
 		bots.append(bot)
 		bot_ai.register(bot, team, index)
 	player.position = spawn
 	set_crouched(false)
 	camera.position.y = STANDING_EYE
-	player.rotation.y = 0
+	var toward_center := -Vector2(spawn.x, spawn.z)
+	player.rotation.y = atan2(-toward_center.x, -toward_center.y)
 	player.velocity = Vector3.ZERO
 	camera.rotation.x = 0
 	marker_view.reset_motion()
