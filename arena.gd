@@ -11,6 +11,8 @@ const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
 const TIMED_SECONDS := 180.0
+const TIMED_RESPAWN_HITS := 3
+const TIMED_RESPAWN_SECONDS := 3.0
 const TOUCH_CONTROLS := preload("res://touch_controls.gd")
 const ARENA_SIZE := 96.0
 const URBAN_MAP := 2
@@ -118,6 +120,9 @@ var six_vs_six := false
 var timed_match := false
 var mobile_mode := false
 var time_left := TIMED_SECONDS
+var player_respawn_left := 0.0
+var player_collision_layer := 0
+var bot_respawns: Array[Dictionary] = []
 var team_hits := [0, 0]
 var touch: TOUCH_CONTROLS
 var result_message: Label
@@ -247,6 +252,7 @@ func _ready() -> void:
 func actor(point: Vector3, is_bot: bool = false, team: int = 0, skin: int = 0) -> CharacterBody3D:
 	var body := CharacterBody3D.new()
 	if is_bot:
+		body.set_meta("skin", skin)
 		add_bot_part(body, Vector3(0, 0.55, 0), Vector3(0.55, 0.95, 0.4))
 		add_bot_part(body, Vector3(0, 1.26, 0), Vector3(0.42, 0.42, 0.42))
 		body.set_meta("health", MAX_HEALTH)
@@ -322,7 +328,7 @@ func clear_paintballs() -> void:
 		ball.mesh.queue_free()
 	paintballs.clear()
 
-func random_spawn_positions(enemy_count: int, ally_count: int) -> Array[Vector3]:
+func clear_spawn_points(ignore_active_actors: bool) -> Array[Vector3]:
 	var nav_map := bot_ai.nav_region.get_navigation_map()
 	var outline := urban_footprint() if map_id == URBAN_MAP else PackedVector2Array()
 	var candidates: Array[Vector3] = []
@@ -330,10 +336,11 @@ func random_spawn_positions(enemy_count: int, ally_count: int) -> Array[Vector3]
 	clearance.size = Vector3(1.7, 1.65, 1.7)
 	var query := PhysicsShapeQueryParameters3D.new()
 	query.shape = clearance
-	var excluded: Array[RID] = [player.get_rid()]
-	for bot in bots:
-		excluded.append(bot.get_rid())
-	query.exclude = excluded
+	if ignore_active_actors:
+		var excluded: Array[RID] = [player.get_rid()]
+		for bot in bots:
+			excluded.append(bot.get_rid())
+		query.exclude = excluded
 	var space := get_world_3d().direct_space_state
 	for x in range(-44, 45, 4):
 		for z in range(-44, 45, 4):
@@ -346,6 +353,10 @@ func random_spawn_positions(enemy_count: int, ally_count: int) -> Array[Vector3]
 			query.transform = Transform3D(Basis.IDENTITY, floor_point + Vector3.UP * 0.99)
 			if space.intersect_shape(query, 1).is_empty():
 				candidates.append(floor_point + Vector3.UP * 0.09)
+	return candidates
+
+func random_spawn_positions(enemy_count: int, ally_count: int) -> Array[Vector3]:
+	var candidates := clear_spawn_points(true)
 	if candidates.size() < enemy_count + ally_count + 1:
 		push_warning("Not enough clear spawn points to start the match.")
 		return []
@@ -383,6 +394,11 @@ func start_match() -> void:
 		show_match_result("This arena needs more open space to spawn all players.")
 		return
 	clear_paintballs()
+	if player_respawn_left > 0.0:
+		player.collision_layer = player_collision_layer
+		marker_view.show()
+	player_respawn_left = 0.0
+	bot_respawns.clear()
 	for mark in arena_splats.get_children():
 		mark.queue_free()
 	for bot in bots:
@@ -432,7 +448,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_M and not menu_requested.get_connections().is_empty():
 			menu_requested.emit()
 			return
-		if event.keycode == KEY_E and outcome == "" and countdown_left <= 0.0:
+		if event.keycode == KEY_E and outcome == "" and countdown_left <= 0.0 and player_respawn_left <= 0.0:
 			var door := nearest_door()
 			if door != null:
 				door.toggle_door()
@@ -465,7 +481,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if go_left > 0.0:
 		go_left = maxf(0.0, go_left - delta)
-		if go_left == 0.0:
+		if go_left == 0.0 and player_respawn_left <= 0.0:
 			update_countdown()
 	if timed_match:
 		time_left = maxf(0.0, time_left - delta)
@@ -473,7 +489,13 @@ func _physics_process(delta: float) -> void:
 			var title := "Draw" if team_hits[0] == team_hits[1] else ("Time up — your team wins" if team_hits[0] > team_hits[1] else "Time up — opponents win")
 			show_match_result("%s\nHits: %d – %d" % [title, team_hits[0], team_hits[1]])
 			return
+	if timed_match:
+		update_timed_respawns(delta)
 	advance_paintballs(delta)
+	if player_respawn_left > 0.0:
+		bot_ai.update(delta)
+		update_hud()
+		return
 	if outcome != "":
 		update_hud()
 		return
@@ -719,12 +741,97 @@ func hurt_player() -> void:
 	if cheats.get("god_mode", false):
 		return
 	if timed_match:
+		if player_respawn_left > 0.0:
+			return
 		team_hits[1] += 1
+		health -= 1
+		update_hit_counter()
+		if MAX_HEALTH - health >= TIMED_RESPAWN_HITS:
+			player_respawn_left = TIMED_RESPAWN_SECONDS
+			player_collision_layer = player.collision_layer
+			player.collision_layer = 0
+			marker_view.hide()
+			fire_requested = false
+			if touch != null:
+				touch.clear_input()
+			update_timed_respawn_countdown()
 		return
 	health -= 1
 	update_hit_counter()
 	if health <= 0:
 		show_loss_popup()
+
+
+func distant_respawn_point(include_player: bool) -> Vector3:
+	var candidates := clear_spawn_points(false)
+	var distances: Array[float] = []
+	var best_distance := 0.0
+	for point in candidates:
+		var nearest := INF
+		if include_player:
+			nearest = point.distance_to(player.position)
+		for bot in bots:
+			nearest = minf(nearest, point.distance_to(bot.position))
+		var distance := minf(nearest, 96.0)
+		distances.append(distance)
+		best_distance = maxf(best_distance, distance)
+	var distant: Array[Vector3] = []
+	for index in range(candidates.size()):
+		if distances[index] >= best_distance - 6.0:
+			distant.append(candidates[index])
+	return Vector3.INF if distant.is_empty() else distant.pick_random()
+
+func update_timed_respawns(delta: float) -> void:
+	if player_respawn_left > 0.0:
+		player_respawn_left = maxf(0.0, player_respawn_left - delta)
+		if player_respawn_left <= 0.0:
+			var point := distant_respawn_point(false)
+			if point == Vector3.INF:
+				player_respawn_left = 0.25
+			else:
+				player.position = point
+				player.velocity = Vector3.ZERO
+				player.set_climbing_ladder(false, Transform3D.IDENTITY, 0.0, Vector3.ZERO)
+				player.set_hiding(false)
+				set_crouched(false)
+				camera.position.y = STANDING_EYE
+				camera.rotation.x = 0
+				var toward_center := -Vector2(point.x, point.z)
+				player.rotation.y = atan2(-toward_center.x, -toward_center.y)
+				player.collision_layer = player_collision_layer
+				marker_view.reset_motion()
+				marker_view.show()
+				coyote_left = 0.0
+				jump_buffer_left = 0.0
+				health = MAX_HEALTH
+				ammo = magazine_size()
+				reload = 0.0
+				cooldown = 0.0
+				go_left = 0.0
+				if touch != null:
+					touch.clear_input()
+				update_hit_counter()
+		update_timed_respawn_countdown()
+	for index in range(bot_respawns.size() - 1, -1, -1):
+		var pending := bot_respawns[index]
+		pending.left -= delta
+		if pending.left > 0.0:
+			continue
+		var point := distant_respawn_point(player_respawn_left <= 0.0)
+		if point == Vector3.INF:
+			continue
+		var bot := actor(point, true, pending.team, pending.skin)
+		bots.append(bot)
+		bot_ai.register(bot, pending.team, bots.size() - 1, pending.skin)
+		bot_respawns.remove_at(index)
+
+func update_timed_respawn_countdown() -> void:
+	if player_respawn_left > 0.0:
+		crosshair.hide()
+		countdown_label.show()
+		countdown_label.text = "Respawn in %d" % ceili(player_respawn_left)
+	else:
+		update_countdown()
 
 func remaining_opponents() -> int:
 	var count := 0
@@ -736,7 +843,17 @@ func remaining_opponents() -> int:
 func damage_bot(bot: CharacterBody3D, from: Vector3, scoring_team: int) -> void:
 	if timed_match:
 		team_hits[scoring_team] += 1
-		bot_ai.hit(bot, from)
+		var remaining := int(bot.get_meta("health")) - 1
+		bot.set_meta("health", remaining)
+		if MAX_HEALTH - remaining >= TIMED_RESPAWN_HITS:
+			bot_respawns.append({"left": TIMED_RESPAWN_SECONDS, "team": bot.get_meta("team"), "skin": bot.get_meta("skin")})
+			bots.erase(bot)
+			bot_ai.remove(bot)
+			bot.collision_layer = 0
+			bot.hide()
+			bot.queue_free()
+		else:
+			bot_ai.hit(bot, from)
 		return
 	var remaining := 0 if cheats.get("one_hit", false) else int(bot.get_meta("health")) - 1
 	bot.set_meta("health", remaining)
@@ -821,10 +938,10 @@ func return_from_loss() -> void:
 func create_hit_counter(overlay: CanvasLayer) -> void:
 	var circle_size := 22
 	var separation := 8
-	var width := MAX_HEALTH * circle_size + (MAX_HEALTH - 1) * separation
+	var slots := TIMED_RESPAWN_HITS if timed_match else MAX_HEALTH
+	var width := slots * circle_size + (slots - 1) * separation
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.visible = not timed_match
 	row.add_theme_constant_override("separation", separation)
 	overlay.add_child(row)
 	row.anchor_left = 0.5
@@ -840,7 +957,7 @@ func create_hit_counter(overlay: CanvasLayer) -> void:
 	empty_hit_style.set_corner_radius_all(ceili(circle_size / 2.0))
 	filled_hit_style = empty_hit_style.duplicate()
 	filled_hit_style.bg_color = Color("#a34df5")
-	for index in range(MAX_HEALTH):
+	for index in range(slots):
 		var circle := Panel.new()
 		circle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		circle.custom_minimum_size = Vector2(circle_size, circle_size)
