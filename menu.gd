@@ -28,7 +28,20 @@ var ruleset_picker: OptionButton
 var mobile_button: CheckButton
 var difficulty_picker: OptionButton
 var description: Label
-var preview: ColorRect
+var layout: BoxContainer
+var header: BoxContainer
+var navigation: BoxContainer
+var side: BoxContainer
+var drawer: PanelContainer
+var drawer_views: Dictionary = {}
+var navigation_buttons: Dictionary = {}
+var active_drawer := ""
+var stage: SubViewportContainer
+var turntable: Node3D
+var showcase: Node3D
+var stage_name: Label
+var crouch_preview: CheckButton
+var summary: Label
 var saved_maps: Dictionary = {}
 var arena: Node
 var settings := ConfigFile.new()
@@ -42,90 +55,201 @@ func _ready() -> void:
 		var parsed = JSON.parse_string(FileAccess.get_file_as_string(MAP_FILE))
 		if parsed is Dictionary:
 			saved_maps = parsed
-	var bg := ColorRect.new()
-	bg.color = Color("#18262b")
-	add_child(bg)
-	bg.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	install_theme()
+	var background := ColorRect.new()
+	background.color = Color("#0a0e2a")
+	add_child(background)
+	background.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
 	add_child(scroll)
 	scroll.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
-	var center := CenterContainer.new()
-	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.add_child(center)
-	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#24373d")
-	style.border_color = Color("#65848b")
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(12)
-	for side in [SIDE_TOP, SIDE_BOTTOM, SIDE_LEFT, SIDE_RIGHT]:
-		style.set_content_margin(side, 24)
-	panel.add_theme_stylebox_override("panel", style)
-	center.add_child(panel)
-	home = VBoxContainer.new()
-	home.custom_minimum_size.x = 440
-	home.add_theme_constant_override("separation", 9)
-	panel.add_child(home)
-	var title := Label.new()
-	title.text = "Fire Defense Field Day"
-	title.add_theme_font_size_override("font_size", 31)
-	home.add_child(title)
-	var account := Button.new()
-	account.text = "Log in / Register"
-	account.pressed.connect(func(): show_info("Player account", "You are playing as a guest. Login and registration will be available when Firebase Authentication is connected. Custom maps are saved in this browser profile."))
-	home.add_child(account)
+	var padding := MarginContainer.new()
+	for edge in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + edge, 16)
+	padding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	padding.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(padding)
+	var main := VBoxContainer.new()
+	main.add_theme_constant_override("separation", 14)
+	padding.add_child(main)
+	header = BoxContainer.new()
+	header.add_theme_constant_override("separation", 12)
+	main.add_child(header)
+	var brand := VBoxContainer.new()
+	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(brand)
+	heading(brand, "FIRE DEFENSE", 16, Color("#2fd8f5"))
+	heading(brand, "FIELD DAY", 38, Color("#ffad38"))
+	var header_actions := HBoxContainer.new()
+	header.add_child(header_actions)
+	menu_button(header_actions, "Settings", func(): show_drawer("Settings"))
+	menu_button(header_actions, "Help", show_help)
+	menu_button(header_actions, "Guest", func():
+		show_info("Guest account", "You are playing as a guest. Custom maps are saved in this browser profile."))
+	layout = BoxContainer.new()
+	layout.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	layout.add_theme_constant_override("separation", 14)
+	main.add_child(layout)
+	side = BoxContainer.new()
+	side.add_theme_constant_override("separation", 12)
+	layout.add_child(side)
+	navigation = BoxContainer.new()
+	navigation.vertical = true
+	navigation.add_theme_constant_override("separation", 7)
+	side.add_child(navigation)
+	drawer = menu_panel(side, Color("#182052"))
+	var drawer_shell := VBoxContainer.new()
+	drawer.add_child(drawer_shell)
+	var sections := ["Operative", "Marker", "Paint & Aim", "Arena", "Match Rules", "Settings"]
+	var accents := [Color("#ff4fa3"), Color("#ff7a2f"), Color("#2fd8f5"), Color("#b6f23a"), Color("#ffd23f"), Color("#a798ff")]
+	for index in range(sections.size()):
+		var section: String = sections[index]
+		if index < 5:
+			var tab := menu_button(navigation, section, show_drawer.bind(section))
+			tab.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			tab.add_theme_color_override("font_color", accents[index])
+			navigation_buttons[section] = tab
+		var page := VBoxContainer.new()
+		page.add_theme_constant_override("separation", 8)
+		drawer_shell.add_child(page)
+		drawer_views[section] = page
+		var title_row := HBoxContainer.new()
+		page.add_child(title_row)
+		var title := heading(title_row, section, 24, accents[index])
+		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		menu_button(title_row, "Close", show_drawer.bind(""))
+		page.hide()
+
+	home = drawer_views["Operative"]
+	outfits = picker("Outfit", OUTFITS)
+	outfits.select(saved_option("outfit", 5, outfits.item_count))
+	home = drawer_views["Marker"]
+	markers = picker("Paintball marker", MARKERS)
+	markers.select(saved_option("marker", 0, markers.item_count))
+	description = add_label(DESCRIPTIONS[markers.selected])
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	markers.item_selected.connect(func(index: int): description.text = DESCRIPTIONS[index])
+	home = drawer_views["Paint & Aim"]
+	build_aim_controls()
+	home = drawer_views["Arena"]
+	maps = picker("Map", [])
+	refresh_maps()
+	add_button("Create a map", open_editor)
+	home = drawer_views["Match Rules"]
+	mode_picker = picker("Match mode", ["1v5", "3v3", "6v6"])
+	difficulty_picker = picker("Bot difficulty", ["Easy", "Normal", "Hard"])
+	ruleset_picker = picker("Scoring", ["5-hit elimination", "Timed · most hits"])
+	mode_picker.select(saved_option("mode", 0, 3))
+	difficulty_picker.select(saved_option("difficulty", 1, 3))
+	ruleset_picker.select(saved_option("ruleset", 0, 2))
+	home = drawer_views["Settings"]
 	add_label("Master volume")
 	var volume := HSlider.new()
-	volume.min_value = 0
 	volume.max_value = 100
 	volume.value = clampf(float(settings.get_value("audio", "volume", 65)), 0, 100)
 	home.add_child(volume)
 	apply_volume(volume.value)
 	volume.value_changed.connect(apply_volume)
-	outfits = picker("Character", OUTFITS)
-	var character_row := HBoxContainer.new()
-	character_row.add_theme_constant_override("separation", 8)
-	home.add_child(character_row)
-	outfits.reparent(character_row)
-	outfits.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outfits.select(saved_option("outfit", 5, outfits.item_count))
-	var open_preview := Button.new()
-	open_preview.text = "Preview"
-	open_preview.pressed.connect(show_character_preview)
-	character_row.add_child(open_preview)
-	preview = ColorRect.new()
-	preview.custom_minimum_size.y = 7
-	home.add_child(preview)
-	outfits.item_selected.connect(func(index: int): preview.color = Color(COLORS[index]))
-	preview.color = Color(COLORS[outfits.selected])
-	markers = picker("Paintball marker", MARKERS)
-	markers.select(saved_option("marker", 0, markers.item_count))
-	description = add_label(DESCRIPTIONS[markers.selected])
-	markers.item_selected.connect(func(index: int): description.text = DESCRIPTIONS[index])
-	maps = picker("Map", [])
-	refresh_maps()
-	var rules := HBoxContainer.new()
-	rules.add_theme_constant_override("separation", 12)
-	home.add_child(rules)
-	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3", "6v6"], saved_option("mode", 0, 3))
-	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], saved_option("difficulty", 1, 3))
-	ruleset_picker = rules_picker(rules, "Scoring", ["5-hit elimination", "Timed · most hits"], saved_option("ruleset", 0, 2))
 	var phone := OS.has_feature("web_android") or OS.has_feature("web_ios") or OS.has_feature("mobile")
 	mobile_button = CheckButton.new()
 	mobile_button.text = "Mobile controls"
 	mobile_button.button_pressed = bool(settings.get_value("match", "mobile", phone))
 	home.add_child(mobile_button)
 	mobile_button.toggled.connect(func(_active: bool): save_match_setup())
+	add_button("Cheat mode", open_cheats)
+
+	build_stage()
+	var dock := menu_panel(main, Color("#182052"))
+	var dock_row := HBoxContainer.new()
+	dock_row.add_theme_constant_override("separation", 14)
+	dock.add_child(dock_row)
+	summary = heading(dock_row, "", 16, Color("#dfe5ff"))
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var play := menu_button(dock_row, "PLAY MATCH", play_match)
+	play.add_theme_font_size_override("font_size", 22)
+	for state in ["normal", "hover", "pressed"]:
+		play.add_theme_stylebox_override(state, panel_style(Color("#bb420f") if state == "pressed" else Color("#c84e11"), Color("#ffaf50")))
 	for option in [outfits, markers, maps, mode_picker, difficulty_picker, ruleset_picker]:
 		option.item_selected.connect(func(_index: int): save_match_setup())
-	add_button("Play match", play_match)
-	add_button("Crosshair & paint color", open_aim_settings)
-	add_button("Create a map", open_editor)
-	add_button("Cheat mode", open_cheats)
-	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire and hold right-click to steady the marker. Your marker reloads automatically when empty. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
+	outfits.item_selected.connect(func(_index: int): refresh_showcase())
+	refresh_showcase()
+	update_summary()
+	resized.connect(update_menu_layout)
+	update_menu_layout()
+	show_drawer("")
+
+func update_menu_layout() -> void:
+	var compact := size.x < 900.0
+	header.vertical = size.x < 520.0
+	layout.vertical = compact
+	side.vertical = compact
+	navigation.vertical = not compact
+	for button in navigation_buttons.values():
+		button.custom_minimum_size.x = 0 if compact else 148
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	navigation.vertical = not compact or size.x < 640.0
+	drawer.custom_minimum_size.x = 0 if compact else 300
+	stage.custom_minimum_size.y = 260 if compact else 340
+
+func show_drawer(section: String) -> void:
+	active_drawer = "" if section == active_drawer else section
+	drawer.visible = not active_drawer.is_empty()
+	for key in drawer_views:
+		drawer_views[key].visible = key == active_drawer
+	for key in navigation_buttons:
+		var button: Button = navigation_buttons[key]
+		button.set_pressed_no_signal(key == active_drawer)
+
+func update_summary() -> void:
+	if summary != null and maps.selected >= 0:
+		summary.text = "%s\n%s  ·  %s bots  ·  %s" % [
+			maps.get_item_text(maps.selected), mode_picker.text, difficulty_picker.text, ruleset_picker.text]
+
+func panel_style(fill: Color, border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill
+	style.border_color = border
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(12)
+	for side_id in [SIDE_TOP, SIDE_BOTTOM, SIDE_LEFT, SIDE_RIGHT]:
+		style.set_content_margin(side_id, 12)
+	return style
+
+func install_theme() -> void:
+	theme = Theme.new()
+	theme.default_font_size = 16
+	for type_id in ["Button", "OptionButton"]:
+		for state in ["normal", "hover", "pressed", "focus"]:
+			var highlight := state == "pressed" or state == "focus"
+			var fill := Color("#373a7c") if state != "normal" else Color("#252b62")
+			theme.set_stylebox(state, type_id, panel_style(fill, Color("#8d99ef") if highlight else Color("#454778")))
+
+func menu_panel(parent: Control, fill: Color) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", panel_style(fill, Color("#464a7d")))
+	parent.add_child(panel)
+	return panel
+
+func heading(parent: Control, value: String, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = value
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	parent.add_child(label)
+	return label
+
+func menu_button(parent: Control, value: String, callback: Callable) -> Button:
+	var button := Button.new()
+	button.text = value
+	button.custom_minimum_size.y = 44
+	parent.add_child(button)
+	button.pressed.connect(callback)
+	if parent == navigation:
+		button.toggle_mode = true
+	return button
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
@@ -134,10 +258,7 @@ func add_label(value: String) -> Label:
 	return label
 
 func add_button(value: String, callback: Callable) -> void:
-	var button := Button.new()
-	button.text = value
-	button.pressed.connect(callback)
-	home.add_child(button)
+	menu_button(home, value, callback)
 
 func picker(label: String, values: Array) -> OptionButton:
 	add_label(label)
@@ -147,72 +268,45 @@ func picker(label: String, values: Array) -> OptionButton:
 	home.add_child(options)
 	return options
 
-func rules_picker(row: HBoxContainer, heading: String, items: Array, selected: int) -> OptionButton:
-	var column := VBoxContainer.new()
-	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(column)
-	var label := Label.new()
-	label.text = heading
-	column.add_child(label)
-	var options := OptionButton.new()
-	for item in items:
-		options.add_item(item)
-	options.select(selected)
-	column.add_child(options)
-	return options
-
-func open_aim_settings() -> void:
-	var dialog := AcceptDialog.new()
-	dialog.title = "Crosshair & paint color"
-	dialog.ok_button_text = "Done"
-	dialog.confirmed.connect(dialog.queue_free)
-	dialog.close_requested.connect(dialog.queue_free)
-	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 9)
-	dialog.add_child(content)
+func build_aim_controls() -> void:
 	var sample := ColorRect.new()
-	sample.color = Color("#233237")
+	sample.color = Color("#101635")
 	sample.custom_minimum_size.y = 72
-	content.add_child(sample)
+	home.add_child(sample)
 	var reticle := CROSSHAIR.new()
 	sample.add_child(reticle)
 	reticle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	reticle.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	content.add_child(row)
-	var style := rules_picker(row, "Crosshair", CROSSHAIR.STYLES, aim_option("style", 0, CROSSHAIR.STYLES.size()))
-	var color := rules_picker(row, "Crosshair color", CROSSHAIR.RETICLE_COLOR_NAMES, aim_option("color", 3, CROSSHAIR.RETICLE_COLOR_NAMES.size()))
-	var paint := rules_picker(row, "Paint color", CROSSHAIR.COLOR_NAMES, aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size()))
-	var size_label := Label.new()
-	content.add_child(size_label)
-	var scale_slider := HSlider.new()
-	scale_slider.min_value = CROSSHAIR.MIN_SIZE
-	scale_slider.max_value = CROSSHAIR.MAX_SIZE
-	scale_slider.step = 1
-	scale_slider.value = aim_size()
-	content.add_child(scale_slider)
-
-	var refresh_preview := func():
+	var style := picker("Crosshair", CROSSHAIR.STYLES)
+	var color := picker("Crosshair color", CROSSHAIR.RETICLE_COLOR_NAMES)
+	var paint := picker("Paint color", CROSSHAIR.COLOR_NAMES)
+	style.select(aim_option("style", 0, CROSSHAIR.STYLES.size()))
+	color.select(aim_option("color", 3, CROSSHAIR.RETICLE_COLOR_NAMES.size()))
+	paint.select(aim_option("paint", 2, CROSSHAIR.COLOR_NAMES.size()))
+	var size_label := add_label("Crosshair size")
+	var size_slider := HSlider.new()
+	size_slider.min_value = CROSSHAIR.MIN_SIZE
+	size_slider.max_value = CROSSHAIR.MAX_SIZE
+	size_slider.step = 1
+	size_slider.value = aim_size()
+	home.add_child(size_slider)
+	var refresh := func():
 		reticle.style_index = style.selected
 		reticle.ink = CROSSHAIR.RETICLE_COLORS[color.selected]
-		reticle.diameter = int(scale_slider.value)
+		reticle.diameter = int(size_slider.value)
 		reticle.queue_redraw()
 		size_label.text = "Crosshair size · %d" % reticle.diameter
-	var save_preferences := func(_value: float):
+	var save_aim := func(_value: float):
 		settings.set_value("aim", "style", style.selected)
 		settings.set_value("aim", "color", color.selected)
 		settings.set_value("aim", "paint", paint.selected)
-		settings.set_value("aim", "size", int(scale_slider.value))
+		settings.set_value("aim", "size", int(size_slider.value))
 		settings.save(CONFIG_FILE)
-		refresh_preview.call()
+		refresh.call()
 	for option in [style, color, paint]:
-		option.item_selected.connect(save_preferences)
-	scale_slider.value_changed.connect(save_preferences)
-	refresh_preview.call()
-	add_child(dialog)
-	dialog.popup_centered(Vector2i(460, 240))
+		option.item_selected.connect(save_aim)
+	size_slider.value_changed.connect(save_aim)
+	refresh.call()
 
 func aim_option(key: String, default_value: int, count: int) -> int:
 	var option := int(settings.get_value("aim", key, default_value))
@@ -233,53 +327,88 @@ func apply_volume(value: float) -> void:
 	settings.set_value("audio", "volume", value)
 	settings.save(CONFIG_FILE)
 
-func show_character_preview() -> void:
-	var dialog := AcceptDialog.new()
-	dialog.title = outfits.get_item_text(outfits.selected)
-	dialog.ok_button_text = "Close"
-	dialog.confirmed.connect(dialog.queue_free)
-	dialog.close_requested.connect(dialog.queue_free)
+func build_stage() -> void:
+	var panel := menu_panel(layout, Color("#111638"))
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var content := VBoxContainer.new()
-	content.add_theme_constant_override("separation", 8)
-	dialog.add_child(content)
-	var display := SubViewportContainer.new()
-	display.custom_minimum_size = Vector2(380, 280)
-	display.stretch = true
-	display.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(display)
+	panel.add_child(content)
+	stage = SubViewportContainer.new()
+	stage.stretch = true
+	stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stage.gui_input.connect(rotate_showcase)
+	content.add_child(stage)
 	var viewport := SubViewport.new()
 	viewport.own_world_3d = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-	display.add_child(viewport)
-	var platform := Node3D.new()
-	viewport.add_child(platform)
+	stage.add_child(viewport)
+	var scene_root := Node3D.new()
+	viewport.add_child(scene_root)
 	var world := WorldEnvironment.new()
 	world.environment = Environment.new()
 	world.environment.background_mode = Environment.BG_COLOR
-	world.environment.background_color = Color("#35474e")
+	world.environment.background_color = Color("#1a2048")
 	world.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	world.environment.ambient_light_color = Color("#ffffff")
-	world.environment.ambient_light_energy = 0.6
-	platform.add_child(world)
-	var light := DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-36, 26, 0)
-	platform.add_child(light)
+	world.environment.ambient_light_color = Color("#c2ccff")
+	world.environment.ambient_light_energy = 0.65
+	scene_root.add_child(world)
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-34, 22, 0)
+	key.light_color = Color("#ffe4c3")
+	scene_root.add_child(key)
+	var rim := DirectionalLight3D.new()
+	rim.rotation_degrees = Vector3(-17, 170, 0)
+	rim.light_color = Color("#6de1ff")
+	rim.light_energy = 0.7
+	scene_root.add_child(rim)
+	var plinth := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.62
+	disc.bottom_radius = 0.68
+	disc.height = 0.13
+	plinth.mesh = disc
+	var finish := StandardMaterial3D.new()
+	finish.albedo_color = Color("#494668")
+	finish.roughness = 0.71
+	plinth.material_override = finish
+	plinth.position.y = -0.065
+	scene_root.add_child(plinth)
+	turntable = Node3D.new()
+	scene_root.add_child(turntable)
 	var camera := Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 1.85
-	camera.position = Vector3(2.1, 1.36, 4.6)
-	platform.add_child(camera)
-	var model := CHARACTER_PREVIEW.new()
-	platform.add_child(model)
-	model.setup(outfits.selected, false)
-	var pose := CheckButton.new()
-	pose.text = "Crouching pose"
-	pose.toggled.connect(model.set_crouching)
-	content.add_child(pose)
-	add_child(dialog)
-	camera.look_at(Vector3(0, 0.76, 0))
+	camera.size = 2.03
+	camera.position = Vector3(1.55, 1.25, 4.5)
+	scene_root.add_child(camera)
+	camera.look_at(Vector3(0, 0.73, 0))
 	camera.make_current()
-	dialog.popup_centered(Vector2i(430, 370))
+	var caption := HBoxContainer.new()
+	content.add_child(caption)
+	stage_name = heading(caption, "", 20, Color("#f5f7ff"))
+	stage_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	crouch_preview = CheckButton.new()
+	crouch_preview.text = "Crouch"
+	crouch_preview.toggled.connect(func(enabled: bool): showcase.set_crouching(enabled))
+	caption.add_child(crouch_preview)
+	var hint := heading(content, "Drag to rotate", 14, Color("#a6afdc"))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func refresh_showcase() -> void:
+	if is_instance_valid(showcase):
+		showcase.queue_free()
+	showcase = CHARACTER_PREVIEW.new()
+	turntable.add_child(showcase)
+	showcase.setup(outfits.selected, false)
+	showcase.set_crouching(crouch_preview.button_pressed)
+	stage_name.text = outfits.text
+
+func rotate_showcase(event: InputEvent) -> void:
+	if event is InputEventScreenDrag or (event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT):
+		turntable.rotate_y(event.relative.x * 0.012)
+		stage.accept_event()
+
+func show_help() -> void:
+	show_info("How to play", "Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire and hold right-click to steady the marker. Your marker reloads automatically when empty. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches count hits without elimination.\n\nFor mobile, turn on Mobile controls in Settings and rotate to landscape. Left stick moves, right stick looks. Use the labeled buttons for actions.\n\nEsc releases the mouse. M opens the menu.")
 
 func show_info(title: String, body: String) -> void:
 	var dialog := AcceptDialog.new()
@@ -305,6 +434,7 @@ func save_match_setup() -> void:
 	settings.set_value("match", "mobile", mobile_button.button_pressed)
 	settings.set_value("match", "map", maps.get_selected_metadata())
 	settings.save(CONFIG_FILE)
+	update_summary()
 
 func refresh_maps() -> void:
 	var selected: Variant = maps.get_selected_metadata()
@@ -327,6 +457,7 @@ func refresh_maps() -> void:
 		if maps.get_item_metadata(index) == selected:
 			maps.select(index)
 			break
+	update_summary()
 
 func play_match() -> void:
 	arena = ARENA.instantiate()
