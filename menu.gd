@@ -33,6 +33,7 @@ var header: BoxContainer
 var navigation: BoxContainer
 var side: BoxContainer
 var drawer: PanelContainer
+var play_dock: PanelContainer
 var drawer_views: Dictionary = {}
 var navigation_buttons: Dictionary = {}
 var active_drawer := ""
@@ -60,11 +61,15 @@ func _ready() -> void:
 	background.color = Color("#0a0e2a")
 	add_child(background)
 	background.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	var frame := VBoxContainer.new()
+	frame.add_theme_constant_override("separation", 0)
+	add_child(frame)
+	frame.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.follow_focus = true
-	add_child(scroll)
-	scroll.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	frame.add_child(scroll)
 	var padding := MarginContainer.new()
 	for edge in ["left", "right", "top", "bottom"]:
 		padding.add_theme_constant_override("margin_" + edge, 16)
@@ -161,10 +166,17 @@ func _ready() -> void:
 	add_button("Cheat mode", open_cheats)
 
 	build_stage()
-	var dock := menu_panel(main, Color("#182052"))
+	var dock_margin := MarginContainer.new()
+	for edge in ["left", "right", "bottom"]:
+		dock_margin.add_theme_constant_override("margin_" + edge, 16)
+	frame.add_child(dock_margin)
+	var dock_wrapper := HBoxContainer.new()
+	dock_margin.add_child(dock_wrapper)
+	dock_wrapper.alignment = BoxContainer.ALIGNMENT_END
+	play_dock = menu_panel(dock_wrapper, Color("#182052"))
 	var dock_row := HBoxContainer.new()
 	dock_row.add_theme_constant_override("separation", 14)
-	dock.add_child(dock_row)
+	play_dock.add_child(dock_row)
 	summary = heading(dock_row, "", 16, Color("#dfe5ff"))
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -193,6 +205,8 @@ func update_menu_layout() -> void:
 	navigation.vertical = not compact or size.x < 640.0
 	drawer.custom_minimum_size.x = 0 if compact else 300
 	stage.custom_minimum_size.y = 260 if compact else 340
+	play_dock.custom_minimum_size.x = 0 if compact else 465
+	play_dock.size_flags_horizontal = Control.SIZE_EXPAND_FILL if compact else Control.SIZE_SHRINK_END
 
 func show_drawer(section: String) -> void:
 	active_drawer = "" if section == active_drawer else section
