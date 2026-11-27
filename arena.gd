@@ -10,6 +10,8 @@ const LOOK := 0.0025
 const COUNTDOWN_DURATION := 3.0
 const GO_DURATION := 0.55
 const MAX_HEALTH := 5
+const TIMED_SECONDS := 180.0
+const TOUCH_CONTROLS := preload("res://touch_controls.gd")
 const ARENA_SIZE := 96.0
 const URBAN_MAP := 2
 const URBAN_BORDER := preload("res://urban_border.gd")
@@ -81,6 +83,14 @@ var go_left := 0.0
 var bots: Array[CharacterBody3D] = []
 var bot_ai: BOT_AI
 var team_match := false
+var six_vs_six := false
+var timed_match := false
+var mobile_mode := false
+var time_left := TIMED_SECONDS
+var team_hits := [0, 0]
+var touch: TOUCH_CONTROLS
+var result_message: Label
+var jump_held := false
 var difficulty := 1
 var paintballs: Array[Paintball] = []
 var arena_splats: Node3D
@@ -183,11 +193,14 @@ func _ready() -> void:
 	countdown_label.add_theme_constant_override("outline_size", 13)
 	countdown_label.add_theme_color_override("font_outline_color", Color("#172021"))
 	center.add_child(countdown_label)
+	if mobile_mode:
+		touch = TOUCH_CONTROLS.new()
+		overlay.add_child(touch)
 	create_loss_popup(overlay)
 	bot_ai = BOT_AI.new(self, difficulty)
 	bot_ai.bake_map()
 	start_match()
-	if not OS.has_feature("web") and DisplayServer.get_name() != "headless":
+	if not mobile_mode and not OS.has_feature("web") and DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func actor(point: Vector3, is_bot: bool = false, team: int = 0, skin: int = 0) -> CharacterBody3D:
@@ -291,11 +304,20 @@ func start_match() -> void:
 		if map_id == URBAN_MAP:
 			locations[3] = Vector3(-10, 0.1, 25)
 			locations[4] = Vector3(10, 0.1, 25)
+	var enemy_count := 3 if team_match else 5
+	if six_vs_six:
+		enemy_count = 6
+		locations = [
+			Vector3(-21, 0.1, -23), Vector3(21, 0.1, -22), Vector3(11, 0.1, -30),
+			Vector3(-15, 0.1, -28), Vector3(7, 0.1, -22), Vector3(24, 0.1, -12),
+			spawn + Vector3(-10, 0, -6), spawn + Vector3(10, 0, -6),
+			spawn + Vector3(-5, 0, -3), spawn + Vector3(5, 0, -3), spawn + Vector3(0, 0, -8)
+		]
 	var skins := [0, 1, 2, 3, 4, 5, 6, 7]
 	skins.shuffle()
 	for index in range(locations.size()):
-		var team := 0 if team_match and index >= 3 else 1
-		var bot := actor(locations[index], true, team, skins[index])
+		var team := 0 if index >= enemy_count else 1
+		var bot := actor(locations[index], true, team, skins[index % skins.size()])
 		bots.append(bot)
 		bot_ai.register(bot, team, index)
 	player.position = spawn
@@ -306,6 +328,10 @@ func start_match() -> void:
 	camera.rotation.x = 0
 	marker_view.reset_motion()
 	health = MAX_HEALTH
+	time_left = TIMED_SECONDS
+	team_hits = [0, 0]
+	if touch != null:
+		touch.show()
 	update_hit_counter()
 	ammo = magazine_size()
 	reload = 0
@@ -319,7 +345,7 @@ func start_match() -> void:
 	update_hud()
 
 func _unhandled_input(event: InputEvent) -> void:
-	if loss_popup.visible:
+	if loss_popup.visible or mobile_mode and (event is InputEventMouseButton or event is InputEventMouseMotion):
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_M and not menu_requested.get_connections().is_empty():
@@ -346,7 +372,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		camera.rotation.x = clampf(camera.rotation.x - event.relative.y * LOOK, -1.45, 1.45)
 
 func _physics_process(delta: float) -> void:
-	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED or outcome != "":
+	if outcome != "" or (not mobile_mode and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED):
+		return
+	if touch != null and touch.consume("MENU"):
+		return_from_loss()
 		return
 	if countdown_left > 0.0:
 		countdown_left = maxf(0.0, countdown_left - delta)
@@ -359,6 +388,12 @@ func _physics_process(delta: float) -> void:
 		go_left = maxf(0.0, go_left - delta)
 		if go_left == 0.0:
 			update_countdown()
+	if timed_match:
+		time_left = maxf(0.0, time_left - delta)
+		if time_left == 0.0:
+			var title := "Draw" if team_hits[0] == team_hits[1] else ("Time up — your team wins" if team_hits[0] > team_hits[1] else "Time up — opponents win")
+			show_match_result("%s\nHits: %d – %d" % [title, team_hits[0], team_hits[1]])
+			return
 	advance_paintballs(delta)
 	if outcome != "":
 		update_hud()
@@ -368,18 +403,34 @@ func _physics_process(delta: float) -> void:
 		0,
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	)
+	jump_held = Input.is_physical_key_pressed(KEY_SPACE)
+	if touch != null:
+		var move: Vector2 = touch.sticks["move"]
+		var look: Vector2 = touch.sticks["look"]
+		direction = Vector3(move.x, 0.0, move.y)
+		player.rotate_y(-look.x * 2.5 * delta)
+		camera.rotation.x = clampf(camera.rotation.x - look.y * 1.85 * delta, -1.45, 1.45)
+		jump_held = touch.held("JUMP")
+		if touch.consume("FIRE"):
+			fire_requested = true
+		if touch.consume("RELOAD") and reload <= 0 and ammo < magazine_size():
+			reload = 0.01 if cheats.get("fast_reload", false) else RELOAD_TIMES[marker_id]
+		if touch.consume("USE"):
+			var door := nearest_door()
+			if door != null:
+				door.toggle_door()
 	update_crouch(delta)
-	var movement := player.basis * direction.normalized() * (CROUCH_SPEED if crouched else SPEED)
+	var movement := player.basis * direction.limit_length() * (CROUCH_SPEED if crouched else SPEED)
 	if update_climbing(delta, -direction.z):
 		movement = Vector3.ZERO
 	else:
 		player.velocity.x = movement.x
 		player.velocity.z = movement.z
 		player.velocity.y -= 12.0 * delta
-		if not crouched and player.is_on_floor() and Input.is_physical_key_pressed(KEY_SPACE):
+		if not crouched and player.is_on_floor() and jump_held:
 			player.velocity.y = 3.3
 	player.move_and_slide()
-	var aiming := Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) and reload <= 0.0
+	var aiming := (touch.held("AIM") if touch != null else Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)) and reload <= 0.0
 	var aim_fov: float = AIM_FOVS[marker_id] if aiming else 78.0
 	camera.fov = move_toward(camera.fov, aim_fov, 120.0 * delta)
 	var reload_progress := 1.0 - reload / float(RELOAD_TIMES[marker_id]) if reload > 0.0 else 0.0
@@ -407,7 +458,7 @@ func update_climbing(_delta: float, up_input: float) -> bool:
 			player.climbing = true
 		else:
 			return false
-	if Input.is_physical_key_pressed(KEY_SPACE):
+	if jump_held:
 		player.climbing = false
 		player.velocity = Vector3(0, 2.0, 0) + player.global_transform.basis.z * 1.5
 		return false
@@ -434,7 +485,7 @@ func nearest_door() -> Node:
 	return best
 
 func update_crouch(delta: float) -> void:
-	if Input.is_physical_key_pressed(KEY_C):
+	if (touch.held("CROUCH") if touch != null else Input.is_physical_key_pressed(KEY_C)):
 		set_crouched(true)
 	elif crouched and has_standing_room():
 		set_crouched(false)
@@ -525,7 +576,7 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 	if direct_bot:
 		if int(target.get_meta("team")) != ball.team:
 			target.get_meta("paint_sprite").paint(position_hit, ball.color)
-			damage_bot(target, ball.source)
+			damage_bot(target, ball.source, ball.team)
 	elif target == player:
 		if ball.team != 0:
 			hurt_player()
@@ -540,16 +591,22 @@ func apply_paint_hit(ball: Paintball, hit: Dictionary) -> void:
 			var splash_hit := trace(splash_start, bot.position + Vector3.UP * 0.65, ball.excluded)
 			if splash_hit.get("collider") == bot:
 				bot.get_meta("paint_sprite").paint(splash_hit["position"], ball.color)
-				damage_bot(bot, ball.source)
+				damage_bot(bot, ball.source, ball.team)
 		if ball.team != 0 and target != player and player.position.distance_to(position_hit) <= 4.0:
 			var player_hit := trace(splash_start, player.position + Vector3.UP * 0.65, ball.excluded)
 			if player_hit.get("collider") == player:
 				hurt_player()
-	if outcome.is_empty() and remaining_opponents() == 0:
-		outcome = "Arena cleared! Press Enter to restart."
+	if not timed_match and outcome.is_empty() and remaining_opponents() == 0:
+		if mobile_mode:
+			show_match_result("Arena cleared!")
+		else:
+			outcome = "Arena cleared! Press Enter to restart."
 
 func hurt_player() -> void:
 	if cheats.get("god_mode", false):
+		return
+	if timed_match:
+		team_hits[1] += 1
 		return
 	health -= 1
 	update_hit_counter()
@@ -563,7 +620,11 @@ func remaining_opponents() -> int:
 			count += 1
 	return count
 
-func damage_bot(bot: CharacterBody3D, from: Vector3) -> void:
+func damage_bot(bot: CharacterBody3D, from: Vector3, scoring_team: int) -> void:
+	if timed_match:
+		team_hits[scoring_team] += 1
+		bot_ai.hit(bot, from)
+		return
 	var remaining := 0 if cheats.get("one_hit", false) else int(bot.get_meta("health")) - 1
 	bot.set_meta("health", remaining)
 	if remaining > 0:
@@ -634,11 +695,10 @@ func create_loss_popup(overlay: CanvasLayer) -> void:
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 18)
 	panel.add_child(layout)
-	var message := Label.new()
-	message.text = "Failed-No PTO Approved"
-	message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	message.add_theme_font_size_override("font_size", 30)
-	layout.add_child(message)
+	result_message = Label.new()
+	result_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_message.add_theme_font_size_override("font_size", 30)
+	layout.add_child(result_message)
 	return_button = Button.new()
 	return_button.text = "Return to Main Menu"
 	return_button.custom_minimum_size.y = 40
@@ -646,8 +706,14 @@ func create_loss_popup(overlay: CanvasLayer) -> void:
 	layout.add_child(return_button)
 
 func show_loss_popup() -> void:
-	outcome = "failed"
+	show_match_result("Failed-No PTO Approved")
+
+func show_match_result(label: String) -> void:
+	outcome = label
+	result_message.text = label
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if touch != null:
+		touch.hide()
 	loss_popup.show()
 	return_button.grab_focus()
 
@@ -663,6 +729,7 @@ func create_hit_counter(overlay: CanvasLayer) -> void:
 	var width := MAX_HEALTH * circle_size + (MAX_HEALTH - 1) * separation
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.visible = not timed_match
 	row.add_theme_constant_override("separation", separation)
 	overlay.add_child(row)
 	row.anchor_left = 0.5
@@ -693,7 +760,7 @@ func update_hit_counter() -> void:
 
 func update_hud() -> void:
 	var message := "" if loss_popup.visible else outcome
-	if outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	if not mobile_mode and outcome.is_empty() and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		message = "Click the arena to start the countdown." if countdown_left > 0.0 else "Click the arena to capture the mouse."
 	var status := "Reloading" if reload > 0 else "%d / %d paintballs" % [ammo, magazine_size()]
 	if not cheats.is_empty():
@@ -710,9 +777,20 @@ func update_hud() -> void:
 			hint = ("HIDDEN   " + hint).strip_edges()
 		if not hint.is_empty():
 			message = hint if message.is_empty() else message + "   " + hint
-	hud.text = "%s   |   Opponents: %d\nWASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   R reload   M menu\n%s" % [
-		status, remaining_opponents(), message
-	]
+	var summary := "Opponents: %d" % remaining_opponents()
+	if timed_match:
+		var seconds := ceili(time_left)
+		summary = "%d:%02d   |   Hits: %d – %d" % [floori(seconds / 60.0), seconds % 60, team_hits[0], team_hits[1]]
+	var controls := "WASD move   Hold C crouch   Space jump   E door   LMB tag   RMB aim   R reload   M menu"
+	if mobile_mode:
+		controls = "Left stick: move    Right stick: look"
+		if player.climbing:
+			message = "Move stick up/down to climb. Jump to let go."
+		elif player.near_ladder:
+			message = "Face the ladder and move forward."
+		elif nearest_door() != null:
+			message = "Tap USE to open or close the door."
+	hud.text = "%s   |   %s\n%s\n%s" % [status, summary, controls, message]
 
 func urban_footprint() -> PackedVector2Array:
 	var outline := PackedVector2Array()
