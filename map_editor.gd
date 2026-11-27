@@ -18,6 +18,8 @@ const MAP_LAYOUT := preload("res://map_layout.gd")
 const STREET_PROPS := preload("res://street_props.gd")
 const HALF := 48.0
 const CATEGORIES := {
+	"Terrain & trees": ["grass_tile", "dirt_tile", "rubble_tile", "tree_sapling", "tree_birch", "tree_maple", "tree_pine", "tree_oak"],
+	"Building pieces": ["build_wall", "build_doorway", "build_floor", "build_roof"],
 	"Cover & barriers": ["crate", "brick_wall_low", "concrete_wall_tall", "jersey_barrier", "crowd_barricade", "bollard", "wood_fence", "chain_link_fence", "sawhorse", "barrel", "traffic_cone", "rubble_heap"],
 	"Vehicles": ["sedan", "pickup", "box_truck", "car_wreck", "flatbed", "box_truck_climb"],
 	"Alley & industrial": ["dumpster", "pallet_stack", "box_pile", "transformer_box", "generator", "ac_chiller", "material_bin", "cable_spools", "water_tank", "scaffold_tower"],
