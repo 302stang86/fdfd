@@ -3,7 +3,7 @@ extends Control
 const STREET_PROPS := preload("res://street_props.gd")
 const MAP_EDITOR := preload("res://map_editor.gd")
 const ARENA := preload("res://arena.tscn")
-const CHARACTER_PREVIEW := preload("res://character_preview.gd")
+const CHARACTER_PREVIEW := preload("res://bot_model.gd")
 const MAP_FILE := "user://arenas.json"
 const CONFIG_FILE := "user://field-day.cfg"
 const CHEAT_HASH := "97aa791eaa8aee573cd373f0c352ea67d7788d6aa00849b0eea29ba3f5fcb0e6" # SHA-256 of the cheat password
@@ -23,6 +23,8 @@ var outfits: OptionButton
 var markers: OptionButton
 var maps: OptionButton
 var mode_picker: OptionButton
+var ruleset_picker: OptionButton
+var mobile_button: CheckButton
 var difficulty_picker: OptionButton
 var description: Label
 var preview: ColorRect
@@ -43,9 +45,14 @@ func _ready() -> void:
 	bg.color = Color("#18262b")
 	add_child(bg)
 	bg.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+	scroll.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	var center := CenterContainer.new()
-	add_child(center)
-	center.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(center)
 	var panel := PanelContainer.new()
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#24373d")
@@ -101,15 +108,22 @@ func _ready() -> void:
 	var rules := HBoxContainer.new()
 	rules.add_theme_constant_override("separation", 12)
 	home.add_child(rules)
-	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3"], saved_option("mode", 0, 2))
+	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3", "6v6"], saved_option("mode", 0, 3))
 	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], saved_option("difficulty", 1, 3))
-	for option in [outfits, markers, maps, mode_picker, difficulty_picker]:
+	ruleset_picker = rules_picker(rules, "Scoring", ["5-hit elimination", "Timed · most hits"], saved_option("ruleset", 0, 2))
+	var phone := OS.has_feature("web_android") or OS.has_feature("web_ios") or OS.has_feature("mobile")
+	mobile_button = CheckButton.new()
+	mobile_button.text = "Mobile controls"
+	mobile_button.button_pressed = bool(settings.get_value("match", "mobile", phone))
+	home.add_child(mobile_button)
+	mobile_button.toggled.connect(func(_active: bool): save_match_setup())
+	for option in [outfits, markers, maps, mode_picker, difficulty_picker, ruleset_picker]:
 		option.item_selected.connect(func(_index: int): save_match_setup())
 	add_button("Play match", play_match)
 	add_button("Create a map", open_editor)
 	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, right-click to aim, and press R to reload. Tag every opponent to win. In 3v3, teammates have teal diamonds.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
+		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, right-click to aim, and press R to reload. Tag every opponent to win. In team matches, teammates have teal diamonds. Timed matches last three minutes and count hits without elimination.\n\nFor mobile, turn on Mobile controls and rotate to landscape. Left stick moves, right stick looks, and labeled buttons handle firing, aiming, crouching, jumping, reloading, and doors.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
@@ -188,8 +202,8 @@ func show_character_preview() -> void:
 	camera.position = Vector3(2.1, 1.36, 4.6)
 	platform.add_child(camera)
 	var model := CHARACTER_PREVIEW.new()
-	model.build(outfits.selected)
 	platform.add_child(model)
+	model.setup(outfits.selected, false)
 	var pose := CheckButton.new()
 	pose.text = "Crouching pose"
 	pose.toggled.connect(model.set_crouching)
@@ -219,6 +233,8 @@ func save_match_setup() -> void:
 	settings.set_value("match", "marker", markers.selected)
 	settings.set_value("match", "mode", mode_picker.selected)
 	settings.set_value("match", "difficulty", difficulty_picker.selected)
+	settings.set_value("match", "ruleset", ruleset_picker.selected)
+	settings.set_value("match", "mobile", mobile_button.button_pressed)
 	settings.set_value("match", "map", maps.get_selected_metadata())
 	settings.save(CONFIG_FILE)
 
@@ -249,7 +265,10 @@ func play_match() -> void:
 	arena.marker_id = markers.selected
 	arena.outfit_color = Color(COLORS[outfits.selected])
 	arena.map_id = maps.selected
-	arena.team_match = mode_picker.selected == 1
+	arena.team_match = mode_picker.selected > 0
+	arena.six_vs_six = mode_picker.selected == 2
+	arena.timed_match = ruleset_picker.selected == 1
+	arena.mobile_mode = mobile_button.button_pressed
 	arena.difficulty = difficulty_picker.selected
 	arena.cheats = cheats.duplicate()
 	if maps.selected >= 3:
@@ -374,7 +393,10 @@ func test_layout(layout: Dictionary) -> void:
 	arena.marker_id = markers.selected
 	arena.outfit_color = Color(COLORS[outfits.selected])
 	arena.map_id = 3
-	arena.team_match = mode_picker.selected == 1
+	arena.team_match = mode_picker.selected > 0
+	arena.six_vs_six = mode_picker.selected == 2
+	arena.timed_match = ruleset_picker.selected == 1
+	arena.mobile_mode = mobile_button.button_pressed
 	arena.difficulty = difficulty_picker.selected
 	arena.cheats = cheats.duplicate()
 	arena.custom_layout = layout
