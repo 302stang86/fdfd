@@ -4,6 +4,7 @@ extends RefCounted
 # (width across, height, length along the model's long axis). Bodies are added straight to the
 # arena so arena_scenery.gd treats them as keep-out areas for grass and dirt.
 
+const EDITOR_PARTS := preload("res://editor_parts.gd")
 const LADDER_SCRIPT := preload("res://ladder.gd")
 const ENTERABLE_SCRIPT := preload("res://enterable.gd")
 const MODEL_DIR := "res://assets/models/street/%s.glb"
@@ -76,6 +77,8 @@ const LABELS := {
 }
 
 static func label_of(id: String) -> Array:
+	if EDITOR_PARTS.LABELS.has(id):
+		return [EDITOR_PARTS.LABELS[id], "Placeable terrain or structure piece"]
 	if LABELS.has(id):
 		return LABELS[id]
 	if CLIMB.has(id):
@@ -156,7 +159,14 @@ func build(arena: Node3D) -> void:
 
 func scene_for(name: String) -> PackedScene:
 	if not scenes.has(name):
-		if CLIMB.has(name):
+		if EDITOR_PARTS.LABELS.has(name):
+		node = EDITOR_PARTS.build(name)
+		node.position = Vector3(at.x, 0.0, at.y)
+		node.rotation.y = yaw
+		arena.add_child(node)
+		if name.ends_with("_tile"):
+			node.set_meta("keep_radius", 0.0)
+	elif CLIMB.has(name):
 			scenes[name] = load("res://assets/models/climb/%s.glb" % name) as PackedScene
 			return scenes[name]
 		if ENTER.has(name):
