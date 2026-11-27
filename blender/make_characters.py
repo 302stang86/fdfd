@@ -261,6 +261,11 @@ def build_part(name, mask, cfg, scale, foot_row, atlas_w, atlas_h, width_px):
                     for i in range(HALF):
                         add_face([centre, ring[i + 1], ring[i]], (r["xc"], r["yc"]),
                                  want_up=1.0 if is_top else -1.0)
+    # Join coincident front/back edge vertices while retaining the per-face
+    # UV coordinates. Recalculate smooth normals on the joined surface.
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.0001)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    bm.normal_update()
     return bm
 
 
@@ -337,7 +342,7 @@ def build_character(char_id, cfg, out_dir, tex_dir):
     bpy.ops.export_scene.gltf(
         filepath=path, export_format="GLB", use_selection=True, export_apply=True,
         export_yup=True, export_materials="EXPORT", export_image_format="AUTO",
-        export_cameras=False, export_lights=False)
+        export_cameras=False, export_lights=False, export_normals=True, export_tangents=True)
     tris = sum(len(p.vertices) - 2 for o in objects for p in o.data.polygons)
     print("exported", os.path.basename(path), "parts:", [o.name for o in objects], "tris:", tris,
           "pivots:", {o.name: tuple(round(c, 2) for c in o.location) for o in objects})

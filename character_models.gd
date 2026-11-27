@@ -3,6 +3,7 @@ extends RefCounted
 # the arena. The models come from blender/make_characters.py: feet at y = 0, 1.5 m tall,
 # facing +Z, split into Torso / ArmA / ArmB / LegA / LegB nodes whose origins are the joints.
 
+const SIDE_MATERIAL := preload("res://character_side_wrap.gdshader")
 const STAND_HEIGHT := 1.5
 const CROUCH_HEIGHT := 1.0
 const PARTS := ["Torso", "ArmA", "ArmB", "LegA", "LegB"]
@@ -69,25 +70,43 @@ static func shape_profile(source: Mesh, part_name: String, height_offset: float)
 		var arrays := source.surface_get_arrays(surface)
 		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 		var normals := PackedVector3Array()
+		var smooth_normals: Dictionary = {}
 		if arrays[Mesh.ARRAY_NORMAL] != null:
 			normals = arrays[Mesh.ARRAY_NORMAL]
 		for index in range(vertices.size()):
 			var vertex := vertices[index]
 			var height := vertex.y + height_offset
 			var multiplier := profile_scale(part_name, height)
+			var slope := 0.0
 			if index < normals.size():
 				var gradient := (profile_scale(part_name, height + 0.002) - profile_scale(part_name, height - 0.002)) / 0.004
+				slope = (profile_center(part_name, height + 0.002) - profile_center(part_name, height - 0.002)) / 0.004
 				var normal := normals[index]
 				normal.z /= multiplier
-				normal.y -= normal.z * vertex.z * gradient
+				normal.y -= normal.z * (vertex.z * gradient + slope)
 				normals[index] = normal.normalized()
-			vertex.z *= multiplier
+			vertex.z = vertex.z * multiplier + profile_center(part_name, height)
 			vertices[index] = vertex
+			if index < normals.size():
+				var key := vertex.snapped(Vector3.ONE * 0.0001)
+				var average: Vector3 = smooth_normals.get(key, Vector3.ZERO)
+				smooth_normals[key] = average + normals[index]
 		arrays[Mesh.ARRAY_VERTEX] = vertices
 		if not normals.is_empty():
+			for index in range(normals.size()):
+				var average: Vector3 = smooth_normals[vertices[index].snapped(Vector3.ONE * 0.0001)]
+				if not average.is_zero_approx():
+					normals[index] = average.normalized()
 			arrays[Mesh.ARRAY_NORMAL] = normals
 		result.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		result.surface_set_material(surface, source.surface_get_material(surface))
+		var original := source.surface_get_material(surface) as BaseMaterial3D
+		if original != null and original.albedo_texture != null:
+			var wrapped := ShaderMaterial.new()
+			wrapped.shader = SIDE_MATERIAL
+			wrapped.set_shader_parameter("atlas", original.albedo_texture)
+			result.surface_set_material(surface, wrapped)
+		else:
+			result.surface_set_material(surface, source.surface_get_material(surface))
 	return result
 
 static func profile_scale(part_name: String, height: float) -> float:
@@ -97,6 +116,16 @@ static func profile_scale(part_name: String, height: float) -> float:
 	if part_name.begins_with("Arm"):
 		return lerpf(1.62, 1.2, smoothstep(0.78, 1.08, height))
 	return lerpf(1.04, 1.27, smoothstep(0.08, 0.28, height))
+
+static func profile_center(part_name: String, height: float) -> float:
+	if part_name == "Torso":
+		var chest := exp(-pow((height - 1.025) / 0.17, 2.0)) * 0.025
+		var pelvis := exp(-pow((height - 0.70) / 0.12, 2.0)) * 0.024
+		var face := exp(-pow((height - 1.32) / 0.055, 2.0)) * 0.012
+		return chest - pelvis + face
+	if part_name.begins_with("Leg"):
+		return -exp(-pow((height - 0.36) / 0.11, 2.0)) * 0.017
+	return 0.0
 
 # The source silhouette has disconnected neck and bodice rings. Join them with
 # a closed fabric insert attached to the torso so it follows the crouch pose.
