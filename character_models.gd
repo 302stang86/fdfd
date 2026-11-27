@@ -3,6 +3,7 @@ extends RefCounted
 # the arena. The models come from blender/make_characters.py: feet at y = 0, 1.5 m tall,
 # facing +Z, split into Torso / ArmA / ArmB / LegA / LegB nodes whose origins are the joints.
 
+const LEGACY_BACK := preload("res://assets/models/characters/legacy_rear_atlas.png")
 const SIDE_MATERIAL := preload("res://character_side_wrap.gdshader")
 const ROSTER := preload("res://character_roster.gd")
 const TEXTURED_OPERATIVES := preload("res://textured_operatives.gd")
@@ -66,10 +67,10 @@ static func add_profile_depth(model: Node3D, skin: int) -> void:
 			var height_offset := part.position.y
 			if view != part:
 				height_offset += view.position.y
-			profile_meshes[key] = shape_profile(view.mesh, part_name, height_offset)
+			profile_meshes[key] = shape_profile(view.mesh, part_name, height_offset, skin)
 		view.mesh = profile_meshes[key]
 
-static func shape_profile(source: Mesh, part_name: String, height_offset: float) -> ArrayMesh:
+static func shape_profile(source: Mesh, part_name: String, height_offset: float, skin: int) -> ArrayMesh:
 	var result := ArrayMesh.new()
 	for surface in range(source.get_surface_count()):
 		var arrays := source.surface_get_arrays(surface)
@@ -109,6 +110,16 @@ static func shape_profile(source: Mesh, part_name: String, height_offset: float)
 			var wrapped := ShaderMaterial.new()
 			wrapped.shader = SIDE_MATERIAL
 			wrapped.set_shader_parameter("atlas", original.albedo_texture)
+			wrapped.set_shader_parameter("rear_atlas", LEGACY_BACK)
+			var rear_index := skin if skin < 4 else skin - 1
+			var rear_col := rear_index % 3
+			var lower := rear_index >= 3
+			var front_center := [176.0, 176.0, 173.0, 175.0, 176.0, 176.0, 177.0]
+			var rear_width := [1.02, 1.00, 1.13, 1.09, 1.0, 0.93, 1.04]
+			wrapped.set_shader_parameter("rear_layout", Vector4(
+				256.0 + rear_col * 512.0, 493.0 if lower else 13.0,
+				484.0 if lower else 451.0, rear_width[skin]))
+			wrapped.set_shader_parameter("front_center", front_center[skin])
 			result.surface_set_material(surface, wrapped)
 		else:
 			result.surface_set_material(surface, source.surface_get_material(surface))

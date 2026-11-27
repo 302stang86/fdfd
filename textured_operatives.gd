@@ -1,5 +1,6 @@
 extends RefCounted
 
+const NEW_BACK := preload("res://assets/models/characters/new_rear_atlas.png")
 const TWO_VIEW := preload("res://assets/models/characters/emo_police_front_back.png")
 const ATLAS := preload("res://assets/models/characters/operative_atlas.png")
 const FABRIC := preload("res://operative_fabric.gdshader")
@@ -74,9 +75,11 @@ static func build_outfit(variant: int) -> Array:
 	fabric.shader = FABRIC
 	fabric.set_shader_parameter("atlas", TWO_VIEW if dual else ATLAS)
 	fabric.set_shader_parameter("has_back", dual)
-	fabric.set_shader_parameter("row_start", (512.0 if variant >= 3 else 0.0) / 1024.0)
-	fabric.set_shader_parameter("hood_color", [Color("#482133"), Color("#3e492e"), Color("#443429"),
-		Color("#783d28"), Color("#414034"), Color("#34383e")][mini(variant, 5)])
+	if not dual:
+		var rear_index := variant - 1
+		fabric.set_shader_parameter("rear_atlas", NEW_BACK)
+		fabric.set_shader_parameter("front_cell", Vector2(variant % 3, 1 if variant >= 3 else 0))
+		fabric.set_shader_parameter("rear_cell", Vector2(rear_index % 3, 1 if rear_index >= 3 else 0))
 	result.append(["Torso", Vector3.ZERO, loft(TWO_TORSO[view_index] if dual else TORSO[variant], variant, 0.0, unit, sole, Vector3.ZERO, fabric)])
 	for sign_value in [-1.0, 1.0]:
 		var letter := "A" if sign_value < 0.0 else "B"
