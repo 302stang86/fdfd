@@ -82,7 +82,7 @@ func _ready() -> void:
 	home.add_child(character_row)
 	outfits.reparent(character_row)
 	outfits.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outfits.select(5)
+	outfits.select(saved_option("outfit", 5, outfits.item_count))
 	var open_preview := Button.new()
 	open_preview.text = "Preview"
 	open_preview.pressed.connect(show_character_preview)
@@ -93,20 +93,23 @@ func _ready() -> void:
 	outfits.item_selected.connect(func(index: int): preview.color = Color(COLORS[index]))
 	preview.color = Color(COLORS[outfits.selected])
 	markers = picker("Paintball marker", MARKERS)
-	description = add_label(DESCRIPTIONS[0])
+	markers.select(saved_option("marker", 0, markers.item_count))
+	description = add_label(DESCRIPTIONS[markers.selected])
 	markers.item_selected.connect(func(index: int): description.text = DESCRIPTIONS[index])
 	maps = picker("Map", [])
 	refresh_maps()
 	var rules := HBoxContainer.new()
 	rules.add_theme_constant_override("separation", 12)
 	home.add_child(rules)
-	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3"], 0)
-	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], 1)
+	mode_picker = rules_picker(rules, "Match mode", ["1v5", "3v3"], saved_option("mode", 0, 2))
+	difficulty_picker = rules_picker(rules, "Bot difficulty", ["Easy", "Normal", "Hard"], saved_option("difficulty", 1, 3))
+	for option in [outfits, markers, maps, mode_picker, difficulty_picker]:
+		option.item_selected.connect(func(_index: int): save_match_setup())
 	add_button("Play match", play_match)
 	add_button("Create a map", open_editor)
 	add_button("Cheat mode", open_cheats)
 	add_button("How to play", func(): show_info("How to play",
-		"Click the arena to capture the mouse. Use WASD to move, hold C to crouch, Space to jump, left-click to fire, right-click to aim, and R to reload. Tag every opposing bot to win. Teammates have a teal diamond above them in 3v3. Press Enter after a match to restart, Esc to release the mouse, and M to return to the main menu."))
+		"Click the arena to capture the mouse and start the countdown.\n\nMove with WASD, hold C to crouch, and press Space to jump. Walk toward a ladder with W to climb, use W/S to move on it, and press Space to let go. Press E to use a nearby door.\n\nLeft-click to fire, right-click to aim, and press R to reload. Tag every opponent to win. In 3v3, teammates have teal diamonds.\n\nEsc releases the mouse. M opens the menu. Press Enter after a win to play again."))
 
 func add_label(value: String) -> Label:
 	var label := Label.new()
@@ -207,17 +210,39 @@ func show_info(title: String, body: String) -> void:
 	add_child(dialog)
 	dialog.popup_centered()
 
+func saved_option(key: String, fallback: int, count: int) -> int:
+	var index := int(settings.get_value("match", key, fallback))
+	return index if index >= 0 and index < count else fallback
+
+func save_match_setup() -> void:
+	settings.set_value("match", "outfit", outfits.selected)
+	settings.set_value("match", "marker", markers.selected)
+	settings.set_value("match", "mode", mode_picker.selected)
+	settings.set_value("match", "difficulty", difficulty_picker.selected)
+	settings.set_value("match", "map", maps.get_selected_metadata())
+	settings.save(CONFIG_FILE)
+
 func refresh_maps() -> void:
+	var selected: Variant = maps.get_selected_metadata()
+	if selected == null:
+		selected = settings.get_value("match", "map", "builtin:urban")
 	maps.clear()
 	maps.add_item("Field Day Arena")
+	maps.set_item_metadata(0, "builtin:field_day")
 	maps.add_item("Open Field")
+	maps.set_item_metadata(1, "builtin:open_field")
 	maps.add_item("Urban Perimeter")
+	maps.set_item_metadata(2, "builtin:urban")
 	var names := saved_maps.keys()
 	names.sort()
 	for title in names:
 		maps.add_item(title + " (local)")
-		maps.set_item_metadata(maps.item_count - 1, title)
+		maps.set_item_metadata(maps.item_count - 1, "local:" + title)
 	maps.select(2)
+	for index in range(maps.item_count):
+		if maps.get_item_metadata(index) == selected:
+			maps.select(index)
+			break
 
 func play_match() -> void:
 	arena = ARENA.instantiate()
@@ -228,7 +253,7 @@ func play_match() -> void:
 	arena.difficulty = difficulty_picker.selected
 	arena.cheats = cheats.duplicate()
 	if maps.selected >= 3:
-		arena.custom_layout = saved_maps[maps.get_selected_metadata()]
+		arena.custom_layout = saved_maps[String(maps.get_selected_metadata()).trim_prefix("local:")]
 	arena.menu_requested.connect(return_home)
 	hide()
 	add_child(arena)
@@ -319,8 +344,9 @@ func write_maps() -> bool:
 func select_saved_map(title: String) -> void:
 	refresh_maps()
 	for index in range(3, maps.item_count):
-		if maps.get_item_metadata(index) == title:
+		if maps.get_item_metadata(index) == "local:" + title:
 			maps.select(index)
+			save_match_setup()
 			break
 
 func on_editor_saved(title: String, layout: Dictionary) -> void:
