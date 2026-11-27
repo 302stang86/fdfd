@@ -44,16 +44,23 @@ jobs:
           test -s "$export_dir/index.html"
           test -s "$export_dir/index.wasm"
           test -s "$export_dir/index.pck"
-          cat > "$site/index.html" <<EOF
+          # Keep the public URL stable while versioning the larger game assets.
+          sed "s|<head>|<head><base href=\"./$build/\">|" "$export_dir/index.html" > "$site/index.html"
+          grep -Fq "<base href=\"./$build/\">" "$site/index.html"
+          cat > "$site/404.html" <<'EOF'
           <!doctype html>
           <html lang="en">
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta http-equiv="refresh" content="0; url=./$build/">
             <title>Fire Defense Field Day</title>
+            <script>
+              if (/^\/fdfd\/build-[0-9a-f]{12}(?:\/(?:index\.html)?)?$/.test(location.pathname)) {
+                location.replace('/fdfd/');
+              }
+            </script>
           </head>
-          <body><a href="./$build/">Open Fire Defense Field Day</a></body>
+          <body><a href="/fdfd/">Open the latest Fire Defense Field Day build</a></body>
           </html>
           EOF
       - uses: actions/upload-pages-artifact@v4
