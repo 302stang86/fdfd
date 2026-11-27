@@ -43,6 +43,7 @@ var showcase: Node3D
 var stage_name: Label
 var crouch_preview: CheckButton
 var summary: Label
+var display_font: FontVariation
 var saved_maps: Dictionary = {}
 var arena: Node
 var settings := ConfigFile.new()
@@ -57,10 +58,18 @@ func _ready() -> void:
 		if parsed is Dictionary:
 			saved_maps = parsed
 	install_theme()
-	var background := ColorRect.new()
-	background.color = Color("#0a0e2a")
+	var background := TextureRect.new()
+	background.texture = preload("res://assets/ui/menu_arena_dusk.png")
+	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 	background.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	var shade := ColorRect.new()
+	shade.color = Color(0.025, 0.028, 0.10, 0.28)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(shade)
+	shade.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	var frame := VBoxContainer.new()
 	frame.add_theme_constant_override("separation", 0)
 	add_child(frame)
@@ -85,9 +94,14 @@ func _ready() -> void:
 	var brand := VBoxContainer.new()
 	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(brand)
-	heading(brand, "FIRE DEFENSE", 16, Color("#2fd8f5"))
-	heading(brand, "FIELD DAY", 38, Color("#ffad38"))
+	var eyebrow := heading(brand, "FIRE DEFENSE", 19, Color("#2fd8f5"))
+	var wordmark := heading(brand, "FIELD DAY", 49, Color("#ffad38"))
+	for line in [eyebrow, wordmark]:
+		line.add_theme_font_override("font", display_font)
+		line.add_theme_color_override("font_outline_color", Color("#15102d"))
+		line.add_theme_constant_override("outline_size", 6)
 	var header_actions := HBoxContainer.new()
+	header_actions.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	header.add_child(header_actions)
 	menu_button(header_actions, "Settings", func(): show_drawer("Settings"))
 	menu_button(header_actions, "Help", show_help)
@@ -104,7 +118,7 @@ func _ready() -> void:
 	navigation.vertical = true
 	navigation.add_theme_constant_override("separation", 7)
 	side.add_child(navigation)
-	drawer = menu_panel(side, Color("#182052"))
+	drawer = menu_panel(side, Color("#18163de8"))
 	var drawer_shell := VBoxContainer.new()
 	drawer.add_child(drawer_shell)
 	var sections := ["Operative", "Marker", "Paint & Aim", "Arena", "Match Rules", "Settings"]
@@ -114,7 +128,10 @@ func _ready() -> void:
 		if index < 5:
 			var tab := menu_button(navigation, section, show_drawer.bind(section))
 			tab.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			tab.add_theme_color_override("font_color", accents[index])
+			tab.add_theme_color_override("font_color", Color("#f5f7ff"))
+			tab.add_theme_font_override("font", display_font)
+			tab.add_theme_stylebox_override("normal", panel_style(Color("#25234bcf"), accents[index].darkened(0.59)))
+			tab.add_theme_stylebox_override("pressed", panel_style(Color("#35305fec"), accents[index]))
 			navigation_buttons[section] = tab
 		var page := VBoxContainer.new()
 		page.add_theme_constant_override("separation", 8)
@@ -143,12 +160,12 @@ func _ready() -> void:
 	refresh_maps()
 	add_button("Create a map", open_editor)
 	home = drawer_views["Match Rules"]
-	mode_picker = picker("Match mode", ["1v5", "3v3", "6v6"])
-	difficulty_picker = picker("Bot difficulty", ["Easy", "Normal", "Hard"])
-	ruleset_picker = picker("Scoring", ["5-hit elimination", "Timed · most hits"])
-	mode_picker.select(saved_option("mode", 0, 3))
-	difficulty_picker.select(saved_option("difficulty", 1, 3))
-	ruleset_picker.select(saved_option("ruleset", 0, 2))
+	mode_picker = segmented_picker("Match mode", ["1v5", "3v3", "6v6"])
+	difficulty_picker = segmented_picker("Bot difficulty", ["Easy", "Normal", "Hard"])
+	ruleset_picker = segmented_picker("Scoring", ["5-hit elimination", "Timed"])
+	select_rule(mode_picker, saved_option("mode", 0, 3))
+	select_rule(difficulty_picker, saved_option("difficulty", 1, 3))
+	select_rule(ruleset_picker, saved_option("ruleset", 0, 2))
 	home = drawer_views["Settings"]
 	add_label("Master volume")
 	var volume := HSlider.new()
@@ -173,7 +190,7 @@ func _ready() -> void:
 	var dock_wrapper := HBoxContainer.new()
 	dock_margin.add_child(dock_wrapper)
 	dock_wrapper.alignment = BoxContainer.ALIGNMENT_END
-	play_dock = menu_panel(dock_wrapper, Color("#182052"))
+	play_dock = menu_panel(dock_wrapper, Color("#151537ee"))
 	var dock_row := HBoxContainer.new()
 	dock_row.add_theme_constant_override("separation", 14)
 	play_dock.add_child(dock_row)
@@ -181,9 +198,11 @@ func _ready() -> void:
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var play := menu_button(dock_row, "PLAY MATCH", play_match)
-	play.add_theme_font_size_override("font_size", 22)
+	play.add_theme_font_size_override("font_size", 24)
+	play.add_theme_font_override("font", display_font)
+	play.custom_minimum_size.y = 56
 	for state in ["normal", "hover", "pressed"]:
-		play.add_theme_stylebox_override(state, panel_style(Color("#bb420f") if state == "pressed" else Color("#c84e11"), Color("#ffaf50")))
+		play.add_theme_stylebox_override(state, panel_style(Color("#bb420f") if state == "pressed" else Color("#da550e"), Color("#ffb44a")))
 	for option in [outfits, markers, maps, mode_picker, difficulty_picker, ruleset_picker]:
 		option.item_selected.connect(func(_index: int): save_match_setup())
 	outfits.item_selected.connect(func(_index: int): refresh_showcase())
@@ -191,7 +210,7 @@ func _ready() -> void:
 	update_summary()
 	resized.connect(update_menu_layout)
 	update_menu_layout()
-	show_drawer("")
+	show_drawer("Match Rules" if size.x >= 900.0 else "")
 
 func update_menu_layout() -> void:
 	var compact := size.x < 900.0
@@ -235,6 +254,9 @@ func panel_style(fill: Color, border: Color) -> StyleBoxFlat:
 func install_theme() -> void:
 	theme = Theme.new()
 	theme.default_font_size = 16
+	display_font = FontVariation.new()
+	display_font.base_font = ThemeDB.fallback_font
+	display_font.variation_embolden = 0.85
 	for type_id in ["Button", "OptionButton"]:
 		for state in ["normal", "hover", "pressed", "focus"]:
 			var highlight: bool = state == "pressed" or state == "focus"
@@ -281,6 +303,35 @@ func picker(label: String, values: Array) -> OptionButton:
 		options.add_item(value)
 	home.add_child(options)
 	return options
+
+func segmented_picker(label: String, values: Array) -> OptionButton:
+	add_label(label)
+	var picker_value := OptionButton.new()
+	home.add_child(picker_value)
+	picker_value.hide()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	home.add_child(row)
+	var buttons: Array[Button] = []
+	var group := ButtonGroup.new()
+	for index in range(values.size()):
+		var button := menu_button(row, values[index], func():
+			picker_value.select(index)
+			picker_value.item_selected.emit(index))
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		button.toggle_mode = true
+		button.button_group = group
+		button.add_theme_stylebox_override("pressed", panel_style(Color("#ffcf35"), Color("#ffefa0")))
+		button.add_theme_color_override("font_pressed_color", Color("#17132b"))
+		buttons.append(button)
+		picker_value.add_item(values[index])
+	picker_value.set_meta("segments", buttons)
+	return picker_value
+
+func select_rule(picker_value: OptionButton, index: int) -> void:
+	picker_value.select(index)
+	var button: Button = picker_value.get_meta("segments")[index]
+	button.button_pressed = true
 
 func build_aim_controls() -> void:
 	var sample := ColorRect.new()
@@ -342,7 +393,9 @@ func apply_volume(value: float) -> void:
 	settings.save(CONFIG_FILE)
 
 func build_stage() -> void:
-	var panel := menu_panel(layout, Color("#111638"))
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	layout.add_child(panel)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var content := VBoxContainer.new()
@@ -354,14 +407,14 @@ func build_stage() -> void:
 	content.add_child(stage)
 	var viewport := SubViewport.new()
 	viewport.own_world_3d = true
+	viewport.transparent_bg = true
 	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
 	stage.add_child(viewport)
 	var scene_root := Node3D.new()
 	viewport.add_child(scene_root)
 	var world := WorldEnvironment.new()
 	world.environment = Environment.new()
-	world.environment.background_mode = Environment.BG_COLOR
-	world.environment.background_color = Color("#1a2048")
+	world.environment.background_mode = Environment.BG_CLEAR_COLOR
 	world.environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	world.environment.ambient_light_color = Color("#c2ccff")
 	world.environment.ambient_light_energy = 0.65
@@ -375,24 +428,6 @@ func build_stage() -> void:
 	rim.light_color = Color("#6de1ff")
 	rim.light_energy = 0.7
 	scene_root.add_child(rim)
-	var ground := MeshInstance3D.new()
-	var floor_mesh := PlaneMesh.new()
-	floor_mesh.size = Vector2(28, 24)
-	var floor_material := StandardMaterial3D.new()
-	floor_material.albedo_color = Color("#292b47")
-	floor_material.roughness = 0.94
-	floor_mesh.material = floor_material
-	ground.mesh = floor_mesh
-	ground.position.y = -0.14
-	scene_root.add_child(ground)
-	var warehouse: Node3D = preload("res://assets/opengameart/industrial/building-a.glb").instantiate()
-	warehouse.position = Vector3(0.1, -0.14, -3.5)
-	warehouse.scale = Vector3(2.5, 1.7, 1.5)
-	scene_root.add_child(warehouse)
-	var cover: Node3D = preload("res://assets/opengameart/industrial/shipping-container-b.glb").instantiate()
-	cover.position = Vector3(-1.45, -0.14, -0.9)
-	cover.rotation.y = 0.5
-	scene_root.add_child(cover)
 	var plinth := MeshInstance3D.new()
 	var disc := CylinderMesh.new()
 	disc.top_radius = 0.62
@@ -400,7 +435,7 @@ func build_stage() -> void:
 	disc.height = 0.13
 	plinth.mesh = disc
 	var finish := StandardMaterial3D.new()
-	finish.albedo_color = Color("#494668")
+	finish.albedo_color = Color("#555064")
 	finish.roughness = 0.71
 	plinth.material_override = finish
 	plinth.position.y = -0.065
@@ -409,13 +444,16 @@ func build_stage() -> void:
 	scene_root.add_child(turntable)
 	var camera := Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = 2.03
-	camera.position = Vector3(1.55, 1.25, 4.5)
+	camera.size = 1.79
+	camera.position = Vector3(0.8, 1.05, 4.5)
 	scene_root.add_child(camera)
-	camera.look_at(Vector3(0, 0.73, 0))
+	camera.look_at(Vector3(0, 0.74, 0))
 	camera.make_current()
+	var caption_wrap := menu_panel(content, Color("#161537d9"))
+	caption_wrap.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	var caption := HBoxContainer.new()
-	content.add_child(caption)
+	caption.add_theme_constant_override("separation", 16)
+	caption_wrap.add_child(caption)
 	stage_name = heading(caption, "", 20, Color("#f5f7ff"))
 	stage_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	crouch_preview = CheckButton.new()
